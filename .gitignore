@@ -1,0 +1,14 @@
+config.js
+*.log
+.DS_Store
+node_modules/
+.vscode/
+.idea/
+
+# 測試用手寫排班照片（含病人資料，勿 commit）
+1.jpg
+2.jpg
+3.jpg
+*.jpeg
+tmp/
+

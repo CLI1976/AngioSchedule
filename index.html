@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AngioSchedule 排班行事曆</title>
+
+  <!-- FullCalendar (v6 ships CSS inside the JS bundle) -->
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@fullcalendar/core@6.1.15/locales/zh-tw.global.min.js"></script>
+
+  <!-- Google Identity Services -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="app-header">
+    <h1>AngioSchedule 排班行事曆</h1>
+    <div class="header-actions">
+      <span id="user-info" class="user-info" hidden></span>
+      <button id="btn-login" class="btn btn-secondary">登入 Google</button>
+      <button id="btn-import" class="btn btn-primary" hidden>從相片匯入</button>
+      <button id="btn-export" class="btn btn-secondary">匯出 .ics</button>
+      <button id="btn-logout" class="btn btn-ghost" hidden>登出</button>
+    </div>
+  </header>
+
+  <main>
+    <div id="calendar"></div>
+
+    <!-- 自訂「天」視圖 -->
+    <div id="day-view" hidden>
+      <div class="day-view-toolbar">
+        <button id="day-back" class="btn btn-secondary">← 返回週視圖</button>
+        <div class="day-view-nav">
+          <button id="day-prev" class="btn btn-ghost">‹</button>
+          <button id="day-today" class="btn btn-secondary">今天</button>
+          <button id="day-next" class="btn btn-ghost">›</button>
+        </div>
+        <h2 id="day-view-title"></h2>
+      </div>
+      <div class="table-wrapper">
+        <table id="day-view-table">
+          <thead>
+            <tr>
+              <th class="col-time">時間</th>
+              <th class="col-patient">病人資料</th>
+              <th class="col-phone">電話</th>
+              <th class="col-site">部位</th>
+              <th class="col-note">備註</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+
+  <!-- 匯入 Modal -->
+  <div id="modal-import" class="modal" hidden>
+    <div class="modal-backdrop"></div>
+    <div class="modal-content modal-wide">
+      <header class="modal-header">
+        <h2>從相片匯入排班</h2>
+        <button class="modal-close" data-close="modal-import">×</button>
+      </header>
+      <div class="modal-body">
+        <div id="import-step-upload">
+          <label class="file-input-label">
+            <input type="file" id="photo-input" accept="image/*" capture="environment">
+            <span>選擇相片或拍照</span>
+          </label>
+          <div id="preview-container" hidden>
+            <img id="photo-preview" alt="預覽">
+            <button id="btn-analyze" class="btn btn-primary">開始解析</button>
+          </div>
+        </div>
+
+        <div id="import-step-loading" hidden>
+          <div class="loader"></div>
+          <p>Gemini 解析中...</p>
+        </div>
+
+        <div id="import-step-confirm" hidden>
+          <p class="hint">紅底欄位為 Gemini 不確定的資料，請點擊修正。</p>
+          <div class="table-wrapper">
+            <table id="parse-result-table">
+              <thead>
+                <tr>
+                  <th>日期</th>
+                  <th>時間</th>
+                  <th>姓名</th>
+                  <th>病歷號</th>
+                  <th>電話</th>
+                  <th>部位</th>
+                  <th>備註</th>
+                  <th>不確定</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="modal-actions">
+            <button id="btn-confirm-import" class="btn btn-primary">確認匯入</button>
+            <button class="btn btn-ghost" data-close="modal-import">取消</button>
+          </div>
+        </div>
+
+        <div id="import-step-error" hidden>
+          <p class="error-msg"></p>
+          <button class="btn btn-secondary" id="btn-retry-import">重試</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 編輯 Modal -->
+  <div id="modal-edit" class="modal" hidden>
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+      <header class="modal-header">
+        <h2>編輯排班</h2>
+        <button class="modal-close" data-close="modal-edit">×</button>
+      </header>
+      <div class="modal-body">
+        <form id="edit-form">
+          <input type="hidden" id="edit-id">
+          <label>日期 <input type="date" id="edit-date" required></label>
+          <label>時間
+            <div class="time-picker">
+              <select id="edit-time-period">
+                <option value="AM">上午</option>
+                <option value="PM">下午</option>
+              </select>
+              <select id="edit-time-hour"></select>
+              <span class="time-sep">:</span>
+              <select id="edit-time-minute">
+                <option value="00">00</option>
+                <option value="30">30</option>
+              </select>
+            </div>
+          </label>
+          <label>姓名 <input type="text" id="edit-name" required></label>
+          <label>病歷號 <input type="text" id="edit-chart_no"></label>
+          <label>電話 <input type="tel" id="edit-phone"></label>
+          <label>部位 / 處置 <input type="text" id="edit-site"></label>
+          <label>備註 <textarea id="edit-note" rows="2"></textarea></label>
+          <label class="checkbox-label">
+            <input type="checkbox" id="edit-uncertain"> 標記為不確定
+          </label>
+          <div class="modal-actions">
+            <button type="submit" class="btn btn-primary">儲存</button>
+            <button type="button" id="btn-delete" class="btn btn-danger">刪除</button>
+            <button type="button" class="btn btn-ghost" data-close="modal-edit">取消</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
