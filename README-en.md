@@ -1,6 +1,6 @@
 # AngioSchedule
 
-A pure-static web app for hospital procedure scheduling. Nurses upload a photo of a handwritten schedule, Gemini AI parses it automatically, results are stored in Google Sheets, and everything is displayed as a Google Calendar-style week view.
+A pure-static web app for hospital procedure scheduling. Batch-import schedules from a **shared public Google Calendar** (or fall back to photo + Gemini AI parsing), store them in Google Sheets, show them in a Google Calendar-style week view, and **print** them as a paper schedule sheet.
 
 🔗 Live demo: <https://cli1976.github.io/AngioSchedule/>
 
@@ -35,9 +35,13 @@ angioschedule/
 ├── index.html
 ├── app.js
 ├── style.css
-├── config.js            ← create yourself; gitignored
+├── config.js            ← create yourself; gitignored (local dev)
 ├── config.example.js    ← template
-└── README.md
+├── README.md            ← Traditional Chinese
+├── README-en.md         ← English
+└── .github/
+    └── workflows/
+        └── deploy.yml   ← GitHub Pages auto-deploy (generates config.js from Secrets)
 ```
 
 ## Setup
@@ -129,6 +133,8 @@ This project deploys via GitHub Actions and **keeps keys out of source**: `confi
 
 > ⚠️ Note: this is a pure static front end, so the generated `config.js` is still readable by the browser (keys are visible to site visitors). The benefit of Secrets is that keys **never enter git history** and can be rotated anytime. Always set domain / referrer restrictions on every key.
 
+> 💡 **Caching**: GitHub Pages serves assets with `max-age=600` (10 min). The deploy appends the commit SHA to `app.js` / `style.css` / `config.js` (`?v=xxxxxxxx`), so browsers re-fetch after an update instead of serving a stale bundle. If you still see an old version, do a one-time `Ctrl + Shift + R` hard refresh.
+
 ## User flow
 
 1. Anyone can open the page and see the calendar (public read)
@@ -139,7 +145,10 @@ This project deploys via GitHub Actions and **keeps keys out of source**: `confi
 4. Review rows and fix fields in the confirm modal
 5. Click **"Confirm import"** → rows are appended to the Google Sheet
 6. Click any event on the calendar to edit or delete
-7. Anyone can click **"Export .ics"** to download the calendar
+7. Go to the week you want, click **"Print this week"** → a landscape A4 weekly grid for paper records
+8. Anyone can click **"Export .ics"** to download the calendar
+
+> 🖨️ **Print tip**: in the print dialog set orientation to **landscape** and enable **Background graphics** so the site color bars and the "uncertain" red shading are printed. `Ctrl + P` also works — it prints whichever week you're currently viewing.
 
 > 📌 **Title format**: on import, the event title (everything except the time) is split in order into "name chart_no-phone procedure/note". English text (e.g. `Bil legs veno`, `PermCath insertion`, `L't IV-DSA`) goes to **procedure/site**, Chinese text (e.g. `分`, `聯`, `分院`, `拆線`) goes to **note**. E.g. `劉海倫 4750012-0985500663 分院`, `游幸春2299542拆線`, `陳人華 293005 L't IV-DSA` all parse correctly (separators optional). The split result can be edited in the confirm table.
 

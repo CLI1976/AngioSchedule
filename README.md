@@ -1,6 +1,6 @@
 # AngioSchedule 排班行事曆
 
-純靜態網頁版的醫院排班行事曆。護理師可拍照上傳手寫排班表，由 Gemini AI 自動解析後寫入 Google Sheet，並以 Google Calendar 風格的週視圖呈現。
+純靜態網頁版的醫院排班行事曆。可從**分享的公開 Google 行事曆**批次匯入排班（或拍照由 Gemini AI 解析為備援），寫入 Google Sheet，以 Google Calendar 風格的週視圖呈現，並可**列印**為紙本排班表。
 
 🔗 線上版：<https://cli1976.github.io/AngioSchedule/>
 
@@ -35,9 +35,13 @@ angioschedule/
 ├── index.html
 ├── app.js
 ├── style.css
-├── config.js            ← 自行建立，已加入 .gitignore
+├── config.js            ← 自行建立，已加入 .gitignore（本機開發用）
 ├── config.example.js    ← 設定範本
-└── README.md
+├── README.md            ← 繁體中文
+├── README-en.md         ← English
+└── .github/
+    └── workflows/
+        └── deploy.yml   ← GitHub Pages 自動部署（從 Secrets 產生 config.js）
 ```
 
 ## 安裝與設定
@@ -129,6 +133,8 @@ npx serve -l 8080
 
 > ⚠️ 注意：這是純前端靜態網站，產生的 `config.js` 仍會被瀏覽器讀取（金鑰對網站訪客而言是可見的）。Secrets 的好處是**金鑰不會進入 git 歷史**、可隨時更換。務必替每把 key 設好網域 / referrer 限制。
 
+> 💡 **快取**：GitHub Pages 對靜態檔設 `max-age=600`（10 分鐘）。部署流程會自動在 `app.js` / `style.css` / `config.js` 後面加上 commit 版本號（`?v=xxxxxxxx`），更新後瀏覽器會重抓、不會被舊快取卡住。若偶爾仍看到舊版，按一次 `Ctrl + Shift + R` 強制重新整理即可。
+
 ## 使用流程
 
 1. 任何人開啟網頁即可瀏覽行事曆（公開讀取）
@@ -139,7 +145,10 @@ npx serve -l 8080
 4. 在確認 Modal 內檢查資料、修正欄位
 5. 按「**確認匯入**」→ 自動寫入 Google Sheet
 6. 點擊行事曆上任何事件可編輯或刪除
-7. 任何人都可按「**匯出 .ics**」下載排班檔
+7. 切到要列印的那一週，按「**列印本週**」→ 輸出橫向 A4 週方格表（紙本記錄用）
+8. 任何人都可按「**匯出 .ics**」下載排班檔
+
+> 🖨️ **列印提示**：列印對話框請把方向設為**橫向**，並勾選「**背景圖形 / Background graphics**」，部位色條與「不確定」紅底才會印出。也可直接按 `Ctrl + P`，列印內容會跟著目前所在週次。
 
 > 📌 **行事曆標題格式**：匯入時會把事件標題（時間以外的資料）依序拆解為「姓名 病歷號-電話 術式/備註」。英文（如 `Bil legs veno`、`PermCath insertion`、`L't IV-DSA`）歸到**術式/部位**，中文（如 `分`、`聯`、`分院`、`拆線`）歸到**備註**。例：`劉海倫 4750012-0985500663 分院`、`游幸春2299542拆線`、`陳人華 293005 L't IV-DSA` 皆可正確解析（有無空白/分隔皆可）。拆解結果可在確認表格內手動修正。
 
