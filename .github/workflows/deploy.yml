@@ -47,6 +47,16 @@ jobs:
           };
           EOF
 
+      - name: Cache-bust local assets in index.html
+        run: |
+          # 用 commit SHA 當版本號，避免瀏覽器快取舊的 app.js/style.css/config.js
+          V="${GITHUB_SHA:0:8}"
+          sed -i \
+            -e "s|href=\"style.css\"|href=\"style.css?v=${V}\"|" \
+            -e "s|src=\"config.js\"|src=\"config.js?v=${V}\"|" \
+            -e "s|src=\"app.js\"|src=\"app.js?v=${V}\"|" \
+            index.html
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
