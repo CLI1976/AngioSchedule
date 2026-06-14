@@ -13,7 +13,7 @@
 - 💾 確認後自動寫入 Google Sheet（含 UUID）
 - 🖱️ 點擊任一事件即可編輯／刪除
 - 📤 一鍵匯出 `.ics` 供匯入 Google Calendar、Outlook、Apple 行事曆
-- 🎨 依部位（veno / PTA / Stenting / RH / M3）自動配色，不確定的資料以紅底標示
+- 🎨 依部位（veno / PTA / Stenting・TEVAR・EVAR / RH / M3）自動配色，不確定的資料以紅底標示
 - 🖨️ 支援列印樣式（隱藏按鈕，輸出乾淨的表格）
 - 📱 RWD，手機瀏覽器可正常使用
 
@@ -149,7 +149,7 @@ npx serve -l 8080
 | --- | --- |
 | veno | 🟢 綠 #1D9E75 |
 | PTA | 🔵 藍 #378ADD |
-| Stenting | 🟣 紫 #534AB7 |
+| Stenting / TEVAR / EVAR | 🟣 紫 #534AB7 |
 | RH | 🟠 橘 #BA7517 |
 | M3 / 其他 | ⚪ 灰 #888780 |
 | `uncertain: true` | 🔴 紅 #E24B4A（覆蓋所有顏色） |

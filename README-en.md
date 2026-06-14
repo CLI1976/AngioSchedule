@@ -13,7 +13,7 @@ A pure-static web app for hospital procedure scheduling. Nurses upload a photo o
 - 💾 Auto-write to Google Sheet with UUIDs
 - 🖱️ Click any event to edit / delete
 - 📤 One-click `.ics` export for Google Calendar / Outlook / Apple Calendar
-- 🎨 Auto color coding by site (veno / PTA / Stenting / RH / M3); uncertain rows highlighted in red
+- 🎨 Auto color coding by site (veno / PTA / Stenting·TEVAR·EVAR / RH / M3); uncertain rows highlighted in red
 - 🖨️ Print-friendly stylesheet (buttons hidden, clean table layout)
 - 📱 Responsive — works on mobile browsers
 
@@ -149,7 +149,7 @@ This project deploys via GitHub Actions and **keeps keys out of source**: `confi
 | --- | --- |
 | veno | 🟢 Green #1D9E75 |
 | PTA | 🔵 Blue #378ADD |
-| Stenting | 🟣 Purple #534AB7 |
+| Stenting / TEVAR / EVAR | 🟣 Purple #534AB7 |
 | RH | 🟠 Orange #BA7517 |
 | M3 / other | ⚪ Gray #888780 |
 | `uncertain: true` | 🔴 Red #E24B4A (overrides all) |

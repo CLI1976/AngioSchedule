@@ -24,7 +24,7 @@ const COLUMNS = ['id', 'date', 'time', 'name', 'chart_no', 'phone', 'site', 'not
 const SITE_COLORS = [
   { match: /veno/i,  color: '#1D9E75' },
   { match: /pta/i,   color: '#378ADD' },
-  { match: /stent/i, color: '#534AB7' },
+  { match: /stent|tevar|evar/i, color: '#534AB7' },
   { match: /^rh$/i,  color: '#BA7517' },
   { match: /^m3$/i,  color: '#888780' },
 ];
