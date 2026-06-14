@@ -332,6 +332,38 @@ main {
   margin-bottom: 1rem;
 }
 
+/* Calendar import modal */
+#cal-step-select label {
+  display: block;
+  margin-bottom: 0.75rem;
+  font-size: 0.875rem;
+  color: var(--color-text);
+}
+#cal-step-select select,
+#cal-step-select input {
+  display: block;
+  width: 100%;
+  margin-top: 0.25rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font-size: 0.9rem;
+  font-family: inherit;
+  background: #fff;
+}
+#cal-step-select select:focus,
+#cal-step-select input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(26,115,232,0.2);
+}
+.week-range {
+  display: flex;
+  gap: 0.75rem;
+}
+.week-range label { flex: 1; }
+#cal-current-week { font-weight: 600; color: var(--color-text); }
+
 .loader {
   width: 48px;
   height: 48px;

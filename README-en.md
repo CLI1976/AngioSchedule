@@ -7,7 +7,8 @@ A pure-static web app for hospital procedure scheduling. Nurses upload a photo o
 ## Features
 
 - 📅 FullCalendar week / day / month views
-- 📷 Upload handwritten schedule photos (mobile camera supported), parsed by Gemini 2.5 Flash
+- 🗓️ **Import from a shared Google Calendar**: shows the current year/week, pick a start week and span, then batch-fetch; event titles are auto-split into name / chart no. / phone / note
+- 📷 Upload handwritten schedule photos (mobile camera supported), parsed by Gemini 2.5 Flash (kept as fallback)
 - ✏️ Inline editing for parsed rows before importing
 - 💾 Auto-write to Google Sheet with UUIDs
 - 🖱️ Click any event to edit / delete
@@ -22,6 +23,7 @@ A pure-static web app for hospital procedure scheduling. Nurses upload a photo o
 | --- | --- |
 | Calendar UI | [FullCalendar 6](https://fullcalendar.io/) (CDN) |
 | OCR | Google [Gemini 2.5 Flash](https://ai.google.dev/) REST API |
+| Calendar import | [Google Calendar API v3](https://developers.google.com/calendar/api) (`calendar.readonly`) |
 | Data store | [Google Sheets API v4](https://developers.google.com/sheets/api) |
 | Auth | [Google Identity Services](https://developers.google.com/identity/oauth2/web) |
 | Export | Handwritten ICS (RFC 5545) |
@@ -56,7 +58,7 @@ Grab a free one from [Google AI Studio](https://aistudio.google.com/app/apikey).
 ### 3. Set up Google OAuth 2.0
 
 1. Go to [Google Cloud Console → APIs & Services → Credentials](https://console.cloud.google.com/apis/credentials)
-2. Enable **Google Sheets API**
+2. Enable **Google Sheets API** and **Google Calendar API** (required for calendar import)
 3. Create an **OAuth 2.0 Client ID** (type: Web application)
 4. Add your deployment URLs to **Authorized JavaScript origins**:
    - `https://cli1976.github.io`
@@ -105,12 +107,16 @@ In the repo settings → Pages → Source, pick `main` branch / root. Auto-deplo
 ## User flow
 
 1. Anyone can open the page and see the calendar (public read)
-2. Nurse clicks **"Sign in with Google"** to authorize
-3. Click **"Import from photo"** → pick a schedule photo
-4. Gemini parses → review rows, fix red-highlighted (uncertain) fields
+2. Nurse clicks **"Sign in with Google"** to authorize (first time also asks for read access to Google Calendar)
+3. Import schedules (either option):
+   - **Import from Google Calendar** (recommended): pick the calendar to read → the app shows the current year/week → enter a start week and span (e.g. current week 24, start at week 25 for 2 weeks) → click "Fetch"
+   - **Import from photo** (fallback): pick a schedule photo → Gemini parses
+4. Review rows and fix fields in the confirm modal
 5. Click **"Confirm import"** → rows are appended to the Google Sheet
 6. Click any event on the calendar to edit or delete
 7. Anyone can click **"Export .ics"** to download the calendar
+
+> 📌 **Title format**: on import, the event title (everything except the time) is split in order into "name chart_no-phone note", e.g. `劉海倫 4750012-0985500663 分院` or `游幸春2299542拆線` (separators optional). The split result can be edited in the confirm table.
 
 ## Color mapping
 

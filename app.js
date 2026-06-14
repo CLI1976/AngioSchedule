@@ -18,7 +18,7 @@ const state = {
 };
 
 const SHEET_NAME = 'schedules';
-const SCOPES = 'https://www.googleapis.com/auth/spreadsheets openid email profile';
+const SCOPES = 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/calendar.readonly openid email profile';
 const COLUMNS = ['id', 'date', 'time', 'name', 'chart_no', 'phone', 'site', 'note', 'uncertain'];
 
 const SITE_COLORS = [
@@ -206,12 +206,12 @@ function isTokenValid() {
   return state.token && Date.now() < state.tokenExpireAt;
 }
 
-function requestLogin() {
+function requestLogin(forceConsent = false) {
   if (!state.tokenClient) {
     toast('Google 登入服務尚未載入', 'error');
     return;
   }
-  state.tokenClient.requestAccessToken({ prompt: state.token ? '' : 'consent' });
+  state.tokenClient.requestAccessToken({ prompt: (forceConsent || !state.token) ? 'consent' : '' });
 }
 
 function logout() {
@@ -232,6 +232,7 @@ function updateAuthUI() {
   $('#btn-login').hidden = loggedIn;
   $('#btn-logout').hidden = !loggedIn;
   $('#btn-import').hidden = !loggedIn;
+  $('#btn-import-calendar').hidden = !loggedIn;
   const info = $('#user-info');
   info.textContent = state.userEmail || '';
   info.hidden = !loggedIn || !state.userEmail;
@@ -927,8 +928,8 @@ async function handleAnalyze() {
   }
 }
 
-function renderParseResultTable() {
-  const tbody = $('#parse-result-table tbody');
+function renderParseResultTable(tbody) {
+  tbody = tbody || $('#parse-result-table tbody');
   tbody.innerHTML = '';
   state.parsedRows.forEach((row, idx) => {
     const tr = document.createElement('tr');
@@ -950,8 +951,11 @@ function renderParseResultTable() {
     tbody.appendChild(tr);
   });
 
-  tbody.addEventListener('input', onTableInput);
-  tbody.addEventListener('click', onTableClick);
+  if (!tbody._bound) {
+    tbody.addEventListener('input', onTableInput);
+    tbody.addEventListener('click', onTableClick);
+    tbody._bound = true;
+  }
 }
 
 function onTableInput(e) {
@@ -973,10 +977,10 @@ function onTableClick(e) {
   const tr = e.target.closest('tr');
   const idx = Number(tr.dataset.idx);
   state.parsedRows.splice(idx, 1);
-  renderParseResultTable();
+  renderParseResultTable(e.currentTarget);
 }
 
-async function handleConfirmImport() {
+async function handleConfirmImport(modalId = 'modal-import') {
   if (!state.parsedRows.length) { toast('沒有資料可匯入', 'error'); return; }
   if (!isTokenValid()) {
     toast('請先登入 Google', 'error');
@@ -987,12 +991,222 @@ async function handleConfirmImport() {
   try {
     await appendRows(rows);
     toast(`已匯入 ${rows.length} 筆`);
-    hideModal('modal-import');
+    hideModal(modalId);
     await reloadEvents();
   } catch (err) {
     console.error(err);
     toast(err.message, 'error', 5000);
   }
+}
+
+// ============================================================
+// Google Calendar import
+// ============================================================
+// 取得某日期所屬的 ISO-8601 週次（週一為一週之始；含跨年修正）
+function isoWeekOf(date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = (d.getUTCDay() + 6) % 7;        // 週一=0
+  d.setUTCDate(d.getUTCDate() - dayNum + 3);      // 移到當週週四
+  const firstThursday = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
+  const firstDayNum = (firstThursday.getUTCDay() + 6) % 7;
+  firstThursday.setUTCDate(firstThursday.getUTCDate() - firstDayNum + 3);
+  const week = 1 + Math.round((d - firstThursday) / (7 * 24 * 3600 * 1000));
+  return { year: d.getUTCFullYear(), week };
+}
+
+// ISO 週次 → 該週週一（本地時間 00:00）
+function isoWeekStart(isoYear, isoWeek) {
+  const jan4 = new Date(isoYear, 0, 4);
+  const jan4Day = (jan4.getDay() + 6) % 7;        // 週一=0
+  const monday = new Date(jan4);
+  monday.setDate(jan4.getDate() - jan4Day + (isoWeek - 1) * 7);
+  monday.setHours(0, 0, 0, 0);
+  return monday;
+}
+
+// 從行事曆事件標題拆解病患欄位（格式：姓名 病歷號-電話 備註，皆可省略/無分隔）
+function parseCalendarTitle(summary) {
+  const raw = (summary || '').trim();
+  let name = '', chart_no = '', phone = '', note = '';
+  const nameMatch = raw.match(/^[^\d]+/);
+  if (nameMatch) name = nameMatch[0].trim();
+  const afterName = raw.slice(nameMatch ? nameMatch[0].length : 0);
+
+  // 電話：09 開頭共 10 碼
+  let phoneIdx = -1;
+  const phoneMatch = afterName.match(/09\d{8}/);
+  if (phoneMatch) { phone = phoneMatch[0]; phoneIdx = phoneMatch.index; }
+
+  // 病歷號：第一段 3-8 碼數字（跳過電話那段）
+  let chartEnd = 0;
+  for (const m of afterName.matchAll(/\d{3,8}/g)) {
+    if (phoneIdx >= 0 && m.index === phoneIdx) continue;
+    chart_no = m[0];
+    chartEnd = m.index + m[0].length;
+    break;
+  }
+
+  // 備註：病歷號 / 電話之後的剩餘文字
+  const phoneEnd = phoneIdx >= 0 ? phoneIdx + phone.length : 0;
+  const noteStart = Math.max(chartEnd, phoneEnd);
+  note = afterName.slice(noteStart).replace(/^[\s\-@:、,]+/, '').trim();
+
+  return { name, chart_no, phone, site: '', note };
+}
+
+async function calendarApi(path) {
+  if (!isTokenValid()) throw new Error('尚未登入');
+  const res = await fetch(`https://www.googleapis.com/calendar/v3${path}`, {
+    headers: { Authorization: 'Bearer ' + state.token },
+  });
+  if (res.ok) return res.json();
+
+  const txt = await res.text();
+  // 授權範圍不足（舊 token 沒有行事曆權限）→ 觸發重新授權
+  if (res.status === 401 ||
+      (res.status === 403 && /insufficient|scope/i.test(txt))) {
+    const err = new Error('NEED_CALENDAR_SCOPE');
+    err.needScope = true;
+    throw err;
+  }
+  // Calendar API 未在 Cloud Console 啟用
+  if (res.status === 403 && /accessNotConfigured|SERVICE_DISABLED|has not been used/i.test(txt)) {
+    throw new Error('Google Calendar API 尚未啟用，請到 Google Cloud Console 啟用後再試。');
+  }
+  throw new Error('Calendar API 錯誤 ' + res.status + ': ' + txt);
+}
+
+async function fetchCalendarList() {
+  const data = await calendarApi('/users/me/calendarList?fields=items(id,summary,primary)&minAccessRole=reader');
+  return (data.items || []).map((c) => ({
+    id: c.id,
+    summary: c.summary || c.id,
+    primary: !!c.primary,
+  }));
+}
+
+// 抓取指定行事曆在 [timeMin, timeMax) 區間內的事件，轉成排班列
+async function fetchCalendarEvents(calendarId, timeMin, timeMax) {
+  const rows = [];
+  let pageToken = '';
+  do {
+    const params = new URLSearchParams({
+      singleEvents: 'true',
+      orderBy: 'startTime',
+      maxResults: '2500',
+      timeMin: timeMin.toISOString(),
+      timeMax: timeMax.toISOString(),
+      fields: 'items(summary,start),nextPageToken',
+    });
+    if (pageToken) params.set('pageToken', pageToken);
+    const data = await calendarApi(`/calendars/${encodeURIComponent(calendarId)}/events?${params.toString()}`);
+    for (const ev of (data.items || [])) {
+      const startStr = ev.start && (ev.start.dateTime || ev.start.date);
+      if (!startStr) continue;
+      const d = new Date(startStr);
+      if (isNaN(d.getTime())) continue;
+      const date = formatLocalDate(d);
+      const time = ev.start.dateTime ? `${pad2(d.getHours())}:${pad2(d.getMinutes())}` : '';
+      const parsed = parseCalendarTitle(ev.summary);
+      rows.push({ date, time, ...parsed, uncertain: false });
+    }
+    pageToken = data.nextPageToken || '';
+  } while (pageToken);
+  return rows;
+}
+
+function calStepShow(step) {
+  ['select', 'loading', 'confirm', 'error'].forEach((s) => {
+    $('#cal-step-' + s).hidden = (s !== step);
+  });
+}
+
+function updateCalRangePreview() {
+  const startWeek = parseInt($('#cal-start-week').value, 10);
+  const count = parseInt($('#cal-week-count').value, 10);
+  const year = state.calStartYear;
+  if (!year || !startWeek || !count) { $('#cal-range-preview').textContent = ''; return; }
+  const start = isoWeekStart(year, startWeek);
+  const end = isoWeekStart(year, startWeek + count - 1);
+  end.setDate(end.getDate() + 6);
+  $('#cal-range-preview').textContent = `將抓取 ${formatLocalDate(start)} ～ ${formatLocalDate(end)}（第 ${startWeek}～${startWeek + count - 1} 週，共 ${count} 週）`;
+}
+
+async function openCalendarModal() {
+  if (!isTokenValid()) {
+    toast('請先登入 Google', 'error');
+    requestLogin();
+    return;
+  }
+  calStepShow('select');
+  showModal('modal-calendar');
+
+  // 顯示目前年份/週次，預設從下一週開始抓 2 週
+  const cur = isoWeekOf(new Date());
+  state.calStartYear = cur.year;
+  $('#cal-current-week').textContent = `目前為 ${cur.year} 年 第 ${cur.week} 週`;
+  $('#cal-start-week').value = cur.week + 1;
+  $('#cal-week-count').value = 2;
+  updateCalRangePreview();
+
+  // 載入行事曆清單
+  const sel = $('#cal-source');
+  sel.innerHTML = '<option>載入中...</option>';
+  try {
+    const cals = await fetchCalendarList();
+    sel.innerHTML = '';
+    cals.forEach((c) => {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = c.summary + (c.primary ? '（主要）' : '');
+      sel.appendChild(opt);
+    });
+    if (!cals.length) sel.innerHTML = '<option value="">（找不到行事曆）</option>';
+  } catch (err) {
+    if (err.needScope) {
+      hideModal('modal-calendar');
+      toast('需要重新登入以授權讀取 Google 行事曆', 'error', 4000);
+      requestLogin(true);
+      return;
+    }
+    showCalendarError(err.message);
+  }
+}
+
+async function handleFetchCalendar() {
+  const calendarId = $('#cal-source').value;
+  const startWeek = parseInt($('#cal-start-week').value, 10);
+  const count = parseInt($('#cal-week-count').value, 10);
+  if (!calendarId) { toast('請選擇行事曆', 'error'); return; }
+  if (!startWeek || startWeek < 1 || !count || count < 1) { toast('週次設定不正確', 'error'); return; }
+
+  const timeMin = isoWeekStart(state.calStartYear, startWeek);
+  const timeMax = isoWeekStart(state.calStartYear, startWeek + count);
+
+  calStepShow('loading');
+  try {
+    const rows = await fetchCalendarEvents(calendarId, timeMin, timeMax);
+    if (!rows.length) {
+      showCalendarError('這個區間內沒有任何事件，請調整週次後重試。');
+      return;
+    }
+    state.parsedRows = rows;
+    renderParseResultTable($('#cal-result-table tbody'));
+    calStepShow('confirm');
+  } catch (err) {
+    if (err.needScope) {
+      hideModal('modal-calendar');
+      toast('需要重新登入以授權讀取 Google 行事曆', 'error', 4000);
+      requestLogin(true);
+      return;
+    }
+    showCalendarError(err.message);
+  }
+}
+
+function showCalendarError(msg) {
+  calStepShow('error');
+  $('#cal-step-error .error-msg').textContent = msg;
 }
 
 // ============================================================
@@ -1072,10 +1286,18 @@ function downloadICS() {
 // Bootstrap
 // ============================================================
 function bindEvents() {
-  $('#btn-login').addEventListener('click', requestLogin);
+  $('#btn-login').addEventListener('click', () => requestLogin());
   $('#btn-logout').addEventListener('click', logout);
   $('#btn-import').addEventListener('click', openImportModal);
+  $('#btn-import-calendar').addEventListener('click', openCalendarModal);
   $('#btn-export').addEventListener('click', downloadICS);
+
+  $('#btn-fetch-calendar').addEventListener('click', handleFetchCalendar);
+  $('#btn-confirm-calendar').addEventListener('click', () => handleConfirmImport('modal-calendar'));
+  $('#btn-calendar-back').addEventListener('click', () => calStepShow('select'));
+  $('#btn-calendar-retry').addEventListener('click', () => calStepShow('select'));
+  $('#cal-start-week').addEventListener('input', updateCalRangePreview);
+  $('#cal-week-count').addEventListener('input', updateCalRangePreview);
 
   $('#day-back').addEventListener('click', exitDayView);
   $('#day-prev').addEventListener('click', () => shiftDayView(-1));

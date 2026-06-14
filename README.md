@@ -7,7 +7,8 @@
 ## 功能
 
 - 📅 FullCalendar 週/日/月視圖
-- 📷 從手機相簿或拍照上傳排班表，由 Gemini 2.5 Flash 解析
+- 🗓️ **從分享的 Google 行事曆匯入**：顯示目前年份/週次，選定起始週與週數即可批次抓取，標題自動拆解為姓名／病歷號／電話／備註
+- 📷 從手機相簿或拍照上傳排班表，由 Gemini 2.5 Flash 解析（保留為備援）
 - ✏️ 解析結果可在「確認 Modal」內逐欄修正
 - 💾 確認後自動寫入 Google Sheet（含 UUID）
 - 🖱️ 點擊任一事件即可編輯／刪除
@@ -22,6 +23,7 @@
 | --- | --- |
 | 行事曆 UI | [FullCalendar 6](https://fullcalendar.io/)（CDN） |
 | OCR 解析 | Google [Gemini 2.5 Flash](https://ai.google.dev/) REST API |
+| 行事曆匯入 | [Google Calendar API v3](https://developers.google.com/calendar/api)（`calendar.readonly`） |
 | 資料儲存 | [Google Sheets API v4](https://developers.google.com/sheets/api) |
 | 登入驗證 | [Google Identity Services](https://developers.google.com/identity/oauth2/web) |
 | 匯出 | 手寫 ICS（RFC 5545） |
@@ -56,7 +58,7 @@ angioschedule/
 ### 3. 設定 Google OAuth 2.0
 
 1. 進入 [Google Cloud Console → APIs & Services → Credentials](https://console.cloud.google.com/apis/credentials)
-2. 啟用 **Google Sheets API**
+2. 啟用 **Google Sheets API** 與 **Google Calendar API**（行事曆匯入功能需要）
 3. 建立 **OAuth 2.0 Client ID**（類型：Web application）
 4. 將部署網址加入 **Authorized JavaScript origins**：
    - `https://cli1976.github.io`
@@ -105,12 +107,16 @@ git push origin main
 ## 使用流程
 
 1. 任何人開啟網頁即可瀏覽行事曆（公開讀取）
-2. 護理師點擊「**登入 Google**」→ 完成 OAuth 授權
-3. 點擊「**從相片匯入**」→ 選擇排班表照片
-4. Gemini 解析 → 在確認 Modal 內檢查資料、修正紅底欄位
+2. 護理師點擊「**登入 Google**」→ 完成 OAuth 授權（首次會要求授權讀取 Google 行事曆）
+3. 匯入排班（擇一）：
+   - **從 Google 行事曆匯入**（建議）：選擇要讀取的行事曆 → 系統顯示目前年份/週次 → 輸入起始週次與週數（如目前第 24 週，從第 25 週起共 2 週）→ 按「抓取資料」
+   - **從相片匯入**（備援）：選擇排班表照片 → Gemini 解析
+4. 在確認 Modal 內檢查資料、修正欄位
 5. 按「**確認匯入**」→ 自動寫入 Google Sheet
 6. 點擊行事曆上任何事件可編輯或刪除
 7. 任何人都可按「**匯出 .ics**」下載排班檔
+
+> 📌 **行事曆標題格式**：匯入時會把事件標題（時間以外的資料）依序拆解為「姓名 病歷號-電話 備註」，例如 `劉海倫 4750012-0985500663 分院`、`游幸春2299542拆線` 皆可正確解析（有無空白/分隔皆可）。拆解結果可在確認表格內手動修正。
 
 ## 顏色對應
 
