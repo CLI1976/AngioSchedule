@@ -22,10 +22,14 @@
       <button id="btn-login" class="btn btn-secondary">登入 Google</button>
       <button id="btn-import-calendar" class="btn btn-primary" hidden>從 Google 行事曆匯入</button>
       <button id="btn-import" class="btn btn-secondary" hidden>從相片匯入</button>
+      <button id="btn-print" class="btn btn-secondary">列印本週</button>
       <button id="btn-export" class="btn btn-secondary">匯出 .ics</button>
       <button id="btn-logout" class="btn btn-ghost" hidden>登出</button>
     </div>
   </header>
+
+  <!-- 列印專用版面（畫面隱藏，僅列印時顯示） -->
+  <div id="print-area" aria-hidden="true"></div>
 
   <main>
     <div id="calendar"></div>

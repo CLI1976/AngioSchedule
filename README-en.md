@@ -14,7 +14,7 @@ A pure-static web app for hospital procedure scheduling. Nurses upload a photo o
 - 🖱️ Click any event to edit / delete
 - 📤 One-click `.ics` export for Google Calendar / Outlook / Apple Calendar
 - 🎨 Auto color coding by site (veno / PTA / Stenting·TEVAR·EVAR / RH / M3); uncertain rows highlighted in red
-- 🖨️ Print-friendly stylesheet (buttons hidden, clean table layout)
+- 🖨️ "Print this week" button: outputs a paper-optimized **landscape A4 weekly grid** (time × 7 days; empty time rows skipped, site color bars kept, header repeats per page, rows never split across pages)
 - 📱 Responsive — works on mobile browsers
 
 ## Stack

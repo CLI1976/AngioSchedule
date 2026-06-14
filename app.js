@@ -574,6 +574,7 @@ function renderCalendar() {
       const record = info.event.extendedProps.record;
       openEditModal(record);
     },
+    datesSet: () => buildPrintArea(), // 切換週次時同步更新列印內容（Ctrl+P 也能用）
   });
   state.calendar.render();
 }
@@ -583,6 +584,7 @@ function refreshCalendarEvents() {
   state.calendar.removeAllEvents();
   state.calendar.addEventSource(eventsToCalendarItems(state.events));
   if (state.dayViewDate) renderDayView();
+  buildPrintArea();
 }
 
 // ============================================================
@@ -1186,6 +1188,92 @@ function showCalendarError(msg) {
 }
 
 // ============================================================
+// 列印（為紙本最佳化的週方格，橫向 A4）
+// ============================================================
+// 取得行事曆目前所在週的週一～週日（ISO，週一為始）
+function currentWeekDays() {
+  const anchor = state.calendar ? state.calendar.getDate() : new Date();
+  const wk = isoWeekOf(anchor);
+  const monday = isoWeekStart(wk.year, wk.week);
+  const days = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    days.push(d);
+  }
+  return days;
+}
+
+function printEventCell(ev) {
+  const color = eventColor(ev.site, ev.uncertain);
+  const meta = [ev.chart_no, ev.phone].filter(Boolean).join(' · ');
+  const title = `${escapeHtml(ev.name || '')}${ev.site ? ' <span class="p-site">' + escapeHtml(ev.site) + '</span>' : ''}`;
+  return `<div class="p-ev${ev.uncertain ? ' p-uncertain' : ''}" style="border-left-color:${color}">`
+    + `<span class="p-name">${title}</span>`
+    + (meta ? `<span class="p-meta">${escapeHtml(meta)}</span>` : '')
+    + (ev.note ? `<span class="p-note">${escapeHtml(ev.note)}</span>` : '')
+    + `</div>`;
+}
+
+// 重建列印區塊（不會列印，僅準備內容；按鈕或 Ctrl+P 時才印出）
+function buildPrintArea() {
+  const host = $('#print-area');
+  if (!host) return;
+  const days = currentWeekDays();
+  const dayIso = days.map(formatLocalDate);
+
+  // 分組：時段 → 日期 → 事件；無時間者歸「整天」
+  const bySlot = {};
+  const allDay = {};
+  const usedSlots = new Set();
+  for (const ev of state.events) {
+    const di = dayIso.indexOf(ev.date);
+    if (di < 0) continue;
+    const slot = ev.time ? snapToSlot(ev.time) : null;
+    if (!slot) {
+      (allDay[ev.date] = allDay[ev.date] || []).push(ev);
+      continue;
+    }
+    usedSlots.add(slot);
+    const row = bySlot[slot] = bySlot[slot] || {};
+    (row[ev.date] = row[ev.date] || []).push(ev);
+  }
+  const slots = [...usedSlots].sort();
+
+  const headCells = days.map((d) => (
+    `<th>${d.getMonth() + 1}/${d.getDate()}<br><span class="p-wd">${WEEKDAY_LABEL[d.getDay()]}</span></th>`
+  )).join('');
+
+  const buildRow = (label, perDay) => {
+    const cells = dayIso.map((iso) => {
+      const evs = (perDay[iso] || []);
+      return `<td>${evs.map(printEventCell).join('')}</td>`;
+    }).join('');
+    return `<tr><th class="col-time">${label}</th>${cells}</tr>`;
+  };
+
+  let body = '';
+  if (Object.keys(allDay).length) body += buildRow('整天', allDay);
+  for (const slot of slots) body += buildRow(slot, bySlot[slot]);
+  if (!body) body = `<tr><td class="p-empty" colspan="8">本週無排班資料</td></tr>`;
+
+  const first = days[0], last = days[6];
+  const range = `${first.getFullYear()}/${pad2(first.getMonth() + 1)}/${pad2(first.getDate())}（${WEEKDAY_LABEL[first.getDay()]}）`
+    + ` ～ ${last.getFullYear()}/${pad2(last.getMonth() + 1)}/${pad2(last.getDate())}（${WEEKDAY_LABEL[last.getDay()]}）`;
+
+  host.innerHTML =
+    `<h2 class="print-title">血管攝影排班表</h2>`
+    + `<p class="print-range">${range}</p>`
+    + `<table class="print-grid"><thead><tr><th class="col-time">時間</th>${headCells}</tr></thead>`
+    + `<tbody>${body}</tbody></table>`;
+}
+
+function handlePrint() {
+  buildPrintArea();
+  window.print();
+}
+
+// ============================================================
 // Export ICS
 // ============================================================
 function formatICSDate(date) {
@@ -1267,6 +1355,7 @@ function bindEvents() {
   $('#btn-import').addEventListener('click', openImportModal);
   $('#btn-import-calendar').addEventListener('click', openCalendarModal);
   $('#btn-export').addEventListener('click', downloadICS);
+  $('#btn-print').addEventListener('click', handlePrint);
 
   $('#btn-fetch-calendar').addEventListener('click', handleFetchCalendar);
   $('#btn-confirm-calendar').addEventListener('click', () => handleConfirmImport('modal-calendar'));
