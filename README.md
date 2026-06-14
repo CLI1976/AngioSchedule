@@ -101,17 +101,33 @@ npx serve -l 8080
 
 開啟 <http://localhost:8080> 即可使用。
 
-### 6. 部署到 GitHub Pages
+### 6. 部署到 GitHub Pages（GitHub Actions + Secrets）
 
-```bash
-git add .
-git commit -m "Initial commit"
-git push origin main
-```
+本專案用 GitHub Actions 自動部署，**金鑰不進原始碼**：`config.js` 在部署時由 `.github/workflows/deploy.yml` 從 repo Secrets 動態產生。
 
-在 repo 設定 → Pages → Source 選 `main` branch 根目錄，即可自動部署。
+1. **設定 Repo Secrets**：repo → Settings → Secrets and variables → **Actions** → New repository secret，依序新增：
 
-> ⚠️ **正式部署時別忘了**：手動在 GitHub Pages 上的 `config.js` 內填入真實 API key —— 因為 `config.js` 不會被 commit，所以你需要另外上傳，或改用其他方式注入（例如 GitHub Actions secret + envsubst）。
+   | Secret 名稱 | 內容 |
+   | --- | --- |
+   | `GEMINI_API_KEY` | Gemini API Key |
+   | `GOOGLE_CLIENT_ID` | OAuth Client ID |
+   | `GOOGLE_SHEET_ID` | Google Sheet ID |
+   | `GOOGLE_CALENDAR_ID` | 公開行事曆 ID（選用，行事曆匯入用） |
+   | `GOOGLE_API_KEY` | 可存取 Calendar API 的 key（選用） |
+
+2. **設定 Pages 來源**：repo → Settings → **Pages** → Build and deployment → Source 選 **「GitHub Actions」**（不是 Deploy from a branch）。
+
+3. **推送即部署**：
+
+   ```bash
+   git add .
+   git commit -m "..."
+   git push origin main
+   ```
+
+   push 到 `main` 後 Actions 會自動建置並部署；更新金鑰只需改 Secret，不必動原始碼。
+
+> ⚠️ 注意：這是純前端靜態網站，產生的 `config.js` 仍會被瀏覽器讀取（金鑰對網站訪客而言是可見的）。Secrets 的好處是**金鑰不會進入 git 歷史**、可隨時更換。務必替每把 key 設好網域 / referrer 限制。
 
 ## 使用流程
 

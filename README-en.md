@@ -101,17 +101,33 @@ npx serve -l 8080
 
 Open <http://localhost:8080>.
 
-### 6. Deploy to GitHub Pages
+### 6. Deploy to GitHub Pages (GitHub Actions + Secrets)
 
-```bash
-git add .
-git commit -m "Initial commit"
-git push origin main
-```
+This project deploys via GitHub Actions and **keeps keys out of source**: `config.js` is generated at deploy time from repo Secrets by `.github/workflows/deploy.yml`.
 
-In the repo settings → Pages → Source, pick `main` branch / root. Auto-deploy is enabled.
+1. **Add repo Secrets**: repo → Settings → Secrets and variables → **Actions** → New repository secret:
 
-> ⚠️ **For production**: you'll need to populate `config.js` on the deployed site separately — since `config.js` is not committed, either upload it manually or inject it via a GitHub Actions secret + `envsubst` flow.
+   | Secret | Value |
+   | --- | --- |
+   | `GEMINI_API_KEY` | Gemini API Key |
+   | `GOOGLE_CLIENT_ID` | OAuth Client ID |
+   | `GOOGLE_SHEET_ID` | Google Sheet ID |
+   | `GOOGLE_CALENDAR_ID` | Public calendar ID (optional, for calendar import) |
+   | `GOOGLE_API_KEY` | Key with Calendar API access (optional) |
+
+2. **Set Pages source**: repo → Settings → **Pages** → Build and deployment → Source → **"GitHub Actions"** (not Deploy from a branch).
+
+3. **Push to deploy**:
+
+   ```bash
+   git add .
+   git commit -m "..."
+   git push origin main
+   ```
+
+   Pushing to `main` triggers the Actions build + deploy; to rotate keys just change the Secret — no source change needed.
+
+> ⚠️ Note: this is a pure static front end, so the generated `config.js` is still readable by the browser (keys are visible to site visitors). The benefit of Secrets is that keys **never enter git history** and can be rotated anytime. Always set domain / referrer restrictions on every key.
 
 ## User flow
 
