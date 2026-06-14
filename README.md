@@ -7,7 +7,7 @@
 ## 功能
 
 - 📅 FullCalendar 週/日/月視圖
-- 🗓️ **從分享的 Google 行事曆匯入**：顯示目前年份/週次，選定起始週與週數即可批次抓取，標題自動拆解為姓名／病歷號／電話／備註
+- 🗓️ **從公開 Google 行事曆匯入**：顯示目前年份/週次，選定起始週與週數即可批次抓取；標題自動拆解為姓名／病歷號／電話／術式部位／備註（英文歸「術式/部位」、中文歸「備註」）。只讀 config 指定的那一個公開行事曆，**登入不需要任何行事曆權限**
 - 📷 從手機相簿或拍照上傳排班表，由 Gemini 2.5 Flash 解析（保留為備援）
 - ✏️ 解析結果可在「確認 Modal」內逐欄修正
 - 💾 確認後自動寫入 Google Sheet（含 UUID）
@@ -23,7 +23,7 @@
 | --- | --- |
 | 行事曆 UI | [FullCalendar 6](https://fullcalendar.io/)（CDN） |
 | OCR 解析 | Google [Gemini 2.5 Flash](https://ai.google.dev/) REST API |
-| 行事曆匯入 | [Google Calendar API v3](https://developers.google.com/calendar/api)（`calendar.readonly`） |
+| 行事曆匯入 | [Google Calendar API v3](https://developers.google.com/calendar/api)（API key 讀公開行事曆，非 OAuth） |
 | 資料儲存 | [Google Sheets API v4](https://developers.google.com/sheets/api) |
 | 登入驗證 | [Google Identity Services](https://developers.google.com/identity/oauth2/web) |
 | 匯出 | 手寫 ICS（RFC 5545） |
@@ -59,10 +59,17 @@ angioschedule/
 
 1. 進入 [Google Cloud Console → APIs & Services → Credentials](https://console.cloud.google.com/apis/credentials)
 2. 啟用 **Google Sheets API** 與 **Google Calendar API**（行事曆匯入功能需要）
-3. 建立 **OAuth 2.0 Client ID**（類型：Web application）
+3. 建立 **OAuth 2.0 Client ID**（類型：Web application）——僅用於寫入試算表，**不含**任何行事曆權限
 4. 將部署網址加入 **Authorized JavaScript origins**：
    - `https://cli1976.github.io`
    - `http://localhost:8080`（本機開發用）
+5. 建立一組 **API key**（Credentials → Create credentials → API key），用來讀取公開行事曆。
+   建議將該 key 限制為僅允許 **Calendar API** + 你的網域（HTTP referrer）。
+
+### 3-1. 把行事曆設為公開
+
+到要匯入的 Google 行事曆 → 設定 → **存取權限** → 勾選「**將此日曆公開**（查看所有活動詳細資訊）」。
+行事曆 ID 通常就是該帳號的 email。
 
 ### 4. 建立 config.js
 
@@ -72,7 +79,9 @@ angioschedule/
 const CONFIG = {
   GEMINI_API_KEY: "你的 Gemini API Key",
   GOOGLE_CLIENT_ID: "你的 OAuth Client ID.apps.googleusercontent.com",
-  GOOGLE_SHEET_ID: "Sheet ID（網址 /d/ 後面那串）"
+  GOOGLE_SHEET_ID: "Sheet ID（網址 /d/ 後面那串）",
+  GOOGLE_CALENDAR_ID: "要匯入的公開行事曆 ID（通常是 email）",
+  GOOGLE_API_KEY: "" // 可存取 Calendar API 的 key；留空則沿用 GEMINI_API_KEY
 };
 ```
 
@@ -107,16 +116,16 @@ git push origin main
 ## 使用流程
 
 1. 任何人開啟網頁即可瀏覽行事曆（公開讀取）
-2. 護理師點擊「**登入 Google**」→ 完成 OAuth 授權（首次會要求授權讀取 Google 行事曆）
+2. 護理師點擊「**登入 Google**」→ 完成 OAuth 授權（**只會要求「編輯試算表」一項**，因為要把資料寫進 Sheet；不含任何行事曆權限）
 3. 匯入排班（擇一）：
-   - **從 Google 行事曆匯入**（建議）：選擇要讀取的行事曆 → 系統顯示目前年份/週次 → 輸入起始週次與週數（如目前第 24 週，從第 25 週起共 2 週）→ 按「抓取資料」
+   - **從 Google 行事曆匯入**（建議）：系統顯示目前年份/週次與要讀取的公開行事曆 → 輸入起始週次與週數（如目前第 24 週，從第 25 週起共 2 週）→ 按「抓取資料」
    - **從相片匯入**（備援）：選擇排班表照片 → Gemini 解析
 4. 在確認 Modal 內檢查資料、修正欄位
 5. 按「**確認匯入**」→ 自動寫入 Google Sheet
 6. 點擊行事曆上任何事件可編輯或刪除
 7. 任何人都可按「**匯出 .ics**」下載排班檔
 
-> 📌 **行事曆標題格式**：匯入時會把事件標題（時間以外的資料）依序拆解為「姓名 病歷號-電話 備註」，例如 `劉海倫 4750012-0985500663 分院`、`游幸春2299542拆線` 皆可正確解析（有無空白/分隔皆可）。拆解結果可在確認表格內手動修正。
+> 📌 **行事曆標題格式**：匯入時會把事件標題（時間以外的資料）依序拆解為「姓名 病歷號-電話 術式/備註」。英文（如 `Bil legs veno`、`PermCath insertion`、`L't IV-DSA`）歸到**術式/部位**，中文（如 `分`、`聯`、`分院`、`拆線`）歸到**備註**。例：`劉海倫 4750012-0985500663 分院`、`游幸春2299542拆線`、`陳人華 293005 L't IV-DSA` 皆可正確解析（有無空白/分隔皆可）。拆解結果可在確認表格內手動修正。
 
 ## 顏色對應
 
@@ -131,9 +140,11 @@ git push origin main
 
 ## 安全性備註
 
-- `GEMINI_API_KEY` 與 `GOOGLE_CLIENT_ID` 會在前端明文顯示。請務必：
+- `GEMINI_API_KEY`、`GOOGLE_API_KEY` 與 `GOOGLE_CLIENT_ID` 會在前端明文顯示。請務必：
   - 在 Google Cloud Console 將 OAuth Client 限制只允許特定網域
   - 在 AI Studio 設定 Gemini Key 的 HTTP referrer 限制
+  - 將 `GOOGLE_API_KEY` 限制為僅允許 Calendar API + 你的網域（HTTP referrer）
+- 行事曆採「公開唯讀」方式讀取，登入**不索取**任何行事曆權限
 - 寫入 Google Sheet 需 OAuth 登入，未授權者無法新增/編輯/刪除資料
 
 ## 授權

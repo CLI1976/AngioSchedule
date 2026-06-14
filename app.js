@@ -18,7 +18,7 @@ const state = {
 };
 
 const SHEET_NAME = 'schedules';
-const SCOPES = 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/calendar.readonly openid email profile';
+const SCOPES = 'https://www.googleapis.com/auth/spreadsheets openid email profile';
 const COLUMNS = ['id', 'date', 'time', 'name', 'chart_no', 'phone', 'site', 'note', 'uncertain'];
 
 const SITE_COLORS = [
@@ -206,12 +206,12 @@ function isTokenValid() {
   return state.token && Date.now() < state.tokenExpireAt;
 }
 
-function requestLogin(forceConsent = false) {
+function requestLogin() {
   if (!state.tokenClient) {
     toast('Google 登入服務尚未載入', 'error');
     return;
   }
-  state.tokenClient.requestAccessToken({ prompt: (forceConsent || !state.token) ? 'consent' : '' });
+  state.tokenClient.requestAccessToken({ prompt: state.token ? '' : 'consent' });
 }
 
 function logout() {
@@ -1024,10 +1024,20 @@ function isoWeekStart(isoYear, isoWeek) {
   return monday;
 }
 
-// 從行事曆事件標題拆解病患欄位（格式：姓名 病歷號-電話 備註，皆可省略/無分隔）
+// 把剩餘文字拆成「術式/部位」(含英文) 與「備註」(中文等)
+function splitSiteNote(tail) {
+  const siteParts = [], noteParts = [];
+  tail.split(/\s+/).filter(Boolean).forEach((tok) => {
+    if (/[A-Za-z]/.test(tok)) siteParts.push(tok);   // 英文 → 術式/部位
+    else noteParts.push(tok);                          // 中文 / 其他 → 備註
+  });
+  return { site: siteParts.join(' '), note: noteParts.join(' ') };
+}
+
+// 從行事曆事件標題拆解病患欄位（格式：姓名 病歷號-電話 術式/備註，皆可省略/無分隔）
 function parseCalendarTitle(summary) {
   const raw = (summary || '').trim();
-  let name = '', chart_no = '', phone = '', note = '';
+  let name = '', chart_no = '', phone = '';
   const nameMatch = raw.match(/^[^\d]+/);
   if (nameMatch) name = nameMatch[0].trim();
   const afterName = raw.slice(nameMatch ? nameMatch[0].length : 0);
@@ -1046,47 +1056,37 @@ function parseCalendarTitle(summary) {
     break;
   }
 
-  // 備註：病歷號 / 電話之後的剩餘文字
+  // 病歷號 / 電話之後的剩餘文字 → 拆成 術式/部位 與 備註
   const phoneEnd = phoneIdx >= 0 ? phoneIdx + phone.length : 0;
-  const noteStart = Math.max(chartEnd, phoneEnd);
-  note = afterName.slice(noteStart).replace(/^[\s\-@:、,]+/, '').trim();
+  const tail = afterName.slice(Math.max(chartEnd, phoneEnd)).replace(/^[\s\-@:、,]+/, '').trim();
+  const { site, note } = splitSiteNote(tail);
 
-  return { name, chart_no, phone, site: '', note };
+  return { name, chart_no, phone, site, note };
 }
 
-async function calendarApi(path) {
-  if (!isTokenValid()) throw new Error('尚未登入');
-  const res = await fetch(`https://www.googleapis.com/calendar/v3${path}`, {
-    headers: { Authorization: 'Bearer ' + state.token },
-  });
+// 透過 Calendar API + API key 讀取「公開」行事曆（不需 OAuth，也不會碰到使用者其他行事曆）
+async function calendarApiGet(path) {
+  const apiKey = CONFIG.GOOGLE_API_KEY || CONFIG.GEMINI_API_KEY;
+  const sep = path.includes('?') ? '&' : '?';
+  const res = await fetch(`https://www.googleapis.com/calendar/v3${path}${sep}key=${encodeURIComponent(apiKey)}`);
   if (res.ok) return res.json();
 
   const txt = await res.text();
-  // 授權範圍不足（舊 token 沒有行事曆權限）→ 觸發重新授權
-  if (res.status === 401 ||
-      (res.status === 403 && /insufficient|scope/i.test(txt))) {
-    const err = new Error('NEED_CALENDAR_SCOPE');
-    err.needScope = true;
-    throw err;
+  if (res.status === 404) {
+    throw new Error('找不到該行事曆，請確認 config.js 的 GOOGLE_CALENDAR_ID，且該行事曆已設為「公開」。');
   }
-  // Calendar API 未在 Cloud Console 啟用
   if (res.status === 403 && /accessNotConfigured|SERVICE_DISABLED|has not been used/i.test(txt)) {
     throw new Error('Google Calendar API 尚未啟用，請到 Google Cloud Console 啟用後再試。');
+  }
+  if (res.status === 400 && /API key not valid/i.test(txt)) {
+    throw new Error('API key 無效，請在 config.js 設定可存取 Calendar API 的 GOOGLE_API_KEY。');
   }
   throw new Error('Calendar API 錯誤 ' + res.status + ': ' + txt);
 }
 
-async function fetchCalendarList() {
-  const data = await calendarApi('/users/me/calendarList?fields=items(id,summary,primary)&minAccessRole=reader');
-  return (data.items || []).map((c) => ({
-    id: c.id,
-    summary: c.summary || c.id,
-    primary: !!c.primary,
-  }));
-}
-
-// 抓取指定行事曆在 [timeMin, timeMax) 區間內的事件，轉成排班列
-async function fetchCalendarEvents(calendarId, timeMin, timeMax) {
+// 抓取設定的公開行事曆在 [timeMin, timeMax) 區間內的事件，轉成排班列
+async function fetchCalendarEvents(timeMin, timeMax) {
+  const calendarId = CONFIG.GOOGLE_CALENDAR_ID;
   const rows = [];
   let pageToken = '';
   do {
@@ -1099,7 +1099,7 @@ async function fetchCalendarEvents(calendarId, timeMin, timeMax) {
       fields: 'items(summary,start),nextPageToken',
     });
     if (pageToken) params.set('pageToken', pageToken);
-    const data = await calendarApi(`/calendars/${encodeURIComponent(calendarId)}/events?${params.toString()}`);
+    const data = await calendarApiGet(`/calendars/${encodeURIComponent(calendarId)}/events?${params.toString()}`);
     for (const ev of (data.items || [])) {
       const startStr = ev.start && (ev.start.dateTime || ev.start.date);
       if (!startStr) continue;
@@ -1132,14 +1132,21 @@ function updateCalRangePreview() {
   $('#cal-range-preview').textContent = `將抓取 ${formatLocalDate(start)} ～ ${formatLocalDate(end)}（第 ${startWeek}～${startWeek + count - 1} 週，共 ${count} 週）`;
 }
 
-async function openCalendarModal() {
+function openCalendarModal() {
   if (!isTokenValid()) {
     toast('請先登入 Google', 'error');
     requestLogin();
     return;
   }
+  if (!CONFIG.GOOGLE_CALENDAR_ID) {
+    toast('尚未在 config.js 設定 GOOGLE_CALENDAR_ID', 'error', 4000);
+    return;
+  }
   calStepShow('select');
   showModal('modal-calendar');
+
+  // 顯示要讀取的行事曆（固定為 config 設定的公開行事曆）
+  $('#cal-source-info').textContent = CONFIG.GOOGLE_CALENDAR_ID;
 
   // 顯示目前年份/週次，預設從下一週開始抓 2 週
   const cur = isoWeekOf(new Date());
@@ -1148,36 +1155,11 @@ async function openCalendarModal() {
   $('#cal-start-week').value = cur.week + 1;
   $('#cal-week-count').value = 2;
   updateCalRangePreview();
-
-  // 載入行事曆清單
-  const sel = $('#cal-source');
-  sel.innerHTML = '<option>載入中...</option>';
-  try {
-    const cals = await fetchCalendarList();
-    sel.innerHTML = '';
-    cals.forEach((c) => {
-      const opt = document.createElement('option');
-      opt.value = c.id;
-      opt.textContent = c.summary + (c.primary ? '（主要）' : '');
-      sel.appendChild(opt);
-    });
-    if (!cals.length) sel.innerHTML = '<option value="">（找不到行事曆）</option>';
-  } catch (err) {
-    if (err.needScope) {
-      hideModal('modal-calendar');
-      toast('需要重新登入以授權讀取 Google 行事曆', 'error', 4000);
-      requestLogin(true);
-      return;
-    }
-    showCalendarError(err.message);
-  }
 }
 
 async function handleFetchCalendar() {
-  const calendarId = $('#cal-source').value;
   const startWeek = parseInt($('#cal-start-week').value, 10);
   const count = parseInt($('#cal-week-count').value, 10);
-  if (!calendarId) { toast('請選擇行事曆', 'error'); return; }
   if (!startWeek || startWeek < 1 || !count || count < 1) { toast('週次設定不正確', 'error'); return; }
 
   const timeMin = isoWeekStart(state.calStartYear, startWeek);
@@ -1185,7 +1167,7 @@ async function handleFetchCalendar() {
 
   calStepShow('loading');
   try {
-    const rows = await fetchCalendarEvents(calendarId, timeMin, timeMax);
+    const rows = await fetchCalendarEvents(timeMin, timeMax);
     if (!rows.length) {
       showCalendarError('這個區間內沒有任何事件，請調整週次後重試。');
       return;
@@ -1194,12 +1176,6 @@ async function handleFetchCalendar() {
     renderParseResultTable($('#cal-result-table tbody'));
     calStepShow('confirm');
   } catch (err) {
-    if (err.needScope) {
-      hideModal('modal-calendar');
-      toast('需要重新登入以授權讀取 Google 行事曆', 'error', 4000);
-      requestLogin(true);
-      return;
-    }
     showCalendarError(err.message);
   }
 }
@@ -1286,7 +1262,7 @@ function downloadICS() {
 // Bootstrap
 // ============================================================
 function bindEvents() {
-  $('#btn-login').addEventListener('click', () => requestLogin());
+  $('#btn-login').addEventListener('click', requestLogin);
   $('#btn-logout').addEventListener('click', logout);
   $('#btn-import').addEventListener('click', openImportModal);
   $('#btn-import-calendar').addEventListener('click', openCalendarModal);

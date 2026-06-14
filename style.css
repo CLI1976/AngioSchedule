@@ -363,6 +363,11 @@ main {
 }
 .week-range label { flex: 1; }
 #cal-current-week { font-weight: 600; color: var(--color-text); }
+.cal-source-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--color-text);
+  word-break: break-all;
+}
 
 .loader {
   width: 48px;

@@ -48,7 +48,7 @@
               <th class="col-time">時間</th>
               <th class="col-patient">病人資料</th>
               <th class="col-phone">電話</th>
-              <th class="col-site">部位</th>
+              <th class="col-site">術式/部位</th>
               <th class="col-note">備註</th>
             </tr>
           </thead>
@@ -94,7 +94,7 @@
                   <th>姓名</th>
                   <th>病歷號</th>
                   <th>電話</th>
-                  <th>部位</th>
+                  <th>術式/部位</th>
                   <th>備註</th>
                   <th>不確定</th>
                   <th></th>
@@ -129,9 +129,7 @@
         <!-- 步驟 1：選擇行事曆與週數 -->
         <div id="cal-step-select">
           <p class="hint" id="cal-current-week">目前為 — 年 第 — 週</p>
-          <label>行事曆
-            <select id="cal-source"></select>
-          </label>
+          <p class="hint">讀取行事曆：<span id="cal-source-info" class="cal-source-id">—</span></p>
           <div class="week-range">
             <label>起始週次
               <input type="number" id="cal-start-week" min="1" max="53" step="1">
@@ -164,7 +162,7 @@
                   <th>姓名</th>
                   <th>病歷號</th>
                   <th>電話</th>
-                  <th>部位</th>
+                  <th>術式/部位</th>
                   <th>備註</th>
                   <th>不確定</th>
                   <th></th>
@@ -217,7 +215,7 @@
           <label>姓名 <input type="text" id="edit-name" required></label>
           <label>病歷號 <input type="text" id="edit-chart_no"></label>
           <label>電話 <input type="tel" id="edit-phone"></label>
-          <label>部位 / 處置 <input type="text" id="edit-site"></label>
+          <label>術式/部位 <input type="text" id="edit-site"></label>
           <label>備註 <textarea id="edit-note" rows="2"></textarea></label>
           <label class="checkbox-label">
             <input type="checkbox" id="edit-uncertain"> 標記為不確定
