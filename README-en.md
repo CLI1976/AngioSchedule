@@ -10,7 +10,8 @@ A pure-static web app for hospital procedure scheduling. Batch-import schedules 
 - 🗓️ **Import from a public Google Calendar**: shows the current year/week, pick a start week and span, then batch-fetch; event titles are auto-split into name / chart no. / phone / procedure-site / note (English → procedure/site, Chinese → note)
 - ✏️ Inline editing for imported rows before committing
 - 💾 Writes to the Google Sheet (with UUIDs) via Apps Script
-- 🖱️ Click any event to edit / delete
+- 🖱️ Click any event to edit / delete; the "Confirm import" button locks while submitting to avoid duplicate imports from double-clicks
+- 🧹 **Clear this week**: one click batch-deletes every entry in the currently displayed week (Mon–Sun), with a confirmation prompt
 - 📤 One-click `.ics` export for Google Calendar / Outlook / Apple Calendar
 - 🎨 Auto color coding by site (veno / PTA / Stenting·TEVAR·EVAR / RH / M3); uncertain rows highlighted in red
 - 🖨️ "Print this week" button: outputs a paper-optimized **portrait A4 weekly grid (Mon–Fri only)** (time × 5 days; empty time rows skipped, site color bars kept, header repeats per page, rows never split across pages)
@@ -142,8 +143,9 @@ Open <http://localhost:8080>.
 3. Review rows and fix fields in the confirm modal
 4. Click **"Confirm import"** → rows are written to the Google Sheet via Apps Script
 5. Click any event on the calendar to edit or delete
-6. Go to the week you want, click **"Print this week"** → a portrait A4 weekly grid (Mon–Fri only) for paper records
-7. Click **"Export .ics"** to download the calendar
+6. If a week was imported wrong, click **"Clear this week"** to wipe that week (Mon–Sun) in one go, then re-import once
+7. Go to the week you want, click **"Print this week"** → a portrait A4 weekly grid (Mon–Fri only) for paper records
+8. Click **"Export .ics"** to download the calendar
 
 > 🖨️ **Print tip**: in the print dialog set orientation to **portrait** and enable **Background graphics** so the site color bars and the "uncertain" red shading are printed. Weekends are not printed. `Ctrl + P` also works — it prints whichever week you're currently viewing.
 
