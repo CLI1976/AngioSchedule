@@ -9,19 +9,14 @@
   <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@fullcalendar/core@6.1.15/locales/zh-tw.global.min.js"></script>
 
-  <!-- Google Identity Services -->
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
-
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header class="app-header">
     <h1>AngioSchedule 排班行事曆</h1>
     <div class="header-actions">
-      <span id="user-info" class="user-info" hidden></span>
-      <button id="btn-login" class="btn btn-secondary">登入 Google</button>
+      <button id="btn-login" class="btn btn-secondary">登入</button>
       <button id="btn-import-calendar" class="btn btn-primary" hidden>從 Google 行事曆匯入</button>
-      <button id="btn-import" class="btn btn-secondary" hidden>從相片匯入</button>
       <button id="btn-print" class="btn btn-secondary">列印本週</button>
       <button id="btn-export" class="btn btn-secondary">匯出 .ics</button>
       <button id="btn-logout" class="btn btn-ghost" hidden>登出</button>
@@ -61,65 +56,6 @@
       </div>
     </div>
   </main>
-
-  <!-- 匯入 Modal -->
-  <div id="modal-import" class="modal" hidden>
-    <div class="modal-backdrop"></div>
-    <div class="modal-content modal-wide">
-      <header class="modal-header">
-        <h2>從相片匯入排班</h2>
-        <button class="modal-close" data-close="modal-import">×</button>
-      </header>
-      <div class="modal-body">
-        <div id="import-step-upload">
-          <label class="file-input-label">
-            <input type="file" id="photo-input" accept="image/*" capture="environment">
-            <span>選擇相片或拍照</span>
-          </label>
-          <div id="preview-container" hidden>
-            <img id="photo-preview" alt="預覽">
-            <button id="btn-analyze" class="btn btn-primary">開始解析</button>
-          </div>
-        </div>
-
-        <div id="import-step-loading" hidden>
-          <div class="loader"></div>
-          <p>Gemini 解析中...</p>
-        </div>
-
-        <div id="import-step-confirm" hidden>
-          <p class="hint">紅底欄位為 Gemini 不確定的資料，請點擊修正。</p>
-          <div class="table-wrapper">
-            <table id="parse-result-table">
-              <thead>
-                <tr>
-                  <th>日期</th>
-                  <th>時間</th>
-                  <th>姓名</th>
-                  <th>病歷號</th>
-                  <th>電話</th>
-                  <th>術式/部位</th>
-                  <th>備註</th>
-                  <th>不確定</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
-          </div>
-          <div class="modal-actions">
-            <button id="btn-confirm-import" class="btn btn-primary">確認匯入</button>
-            <button class="btn btn-ghost" data-close="modal-import">取消</button>
-          </div>
-        </div>
-
-        <div id="import-step-error" hidden>
-          <p class="error-msg"></p>
-          <button class="btn btn-secondary" id="btn-retry-import">重試</button>
-        </div>
-      </div>
-    </div>
-  </div>
 
   <!-- 從 Google 行事曆匯入 Modal -->
   <div id="modal-calendar" class="modal" hidden>

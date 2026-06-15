@@ -50,12 +50,6 @@ html, body {
   flex-wrap: wrap;
 }
 
-.user-info {
-  font-size: 0.875rem;
-  color: var(--color-text-muted);
-  margin-right: 0.5rem;
-}
-
 main {
   padding: 1rem;
   max-width: 100%;
@@ -304,34 +298,6 @@ main {
 }
 .checkbox-label input { width: auto !important; }
 
-/* Import modal */
-.file-input-label {
-  display: block;
-  border: 2px dashed var(--color-border);
-  border-radius: 8px;
-  padding: 2rem;
-  text-align: center;
-  cursor: pointer;
-  color: var(--color-text-muted);
-  transition: border-color 0.15s, background-color 0.15s;
-}
-.file-input-label:hover {
-  border-color: var(--color-primary);
-  background: var(--color-bg-soft);
-}
-.file-input-label input[type=file] { display: none; }
-
-#preview-container {
-  margin-top: 1rem;
-  text-align: center;
-}
-#photo-preview {
-  max-width: 100%;
-  max-height: 320px;
-  border-radius: 8px;
-  margin-bottom: 1rem;
-}
-
 /* Calendar import modal */
 #cal-step-select label {
   display: block;
@@ -380,8 +346,6 @@ main {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-#import-step-loading { text-align: center; }
-
 .hint {
   font-size: 0.875rem;
   color: var(--color-text-muted);
@@ -400,27 +364,27 @@ main {
   border: 1px solid var(--color-border);
   border-radius: 4px;
 }
-#parse-result-table {
+#cal-result-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.85rem;
 }
-#parse-result-table th,
-#parse-result-table td {
+#cal-result-table th,
+#cal-result-table td {
   padding: 0.4rem 0.5rem;
   border-bottom: 1px solid var(--color-border);
   text-align: left;
   white-space: nowrap;
 }
-#parse-result-table th {
+#cal-result-table th {
   background: var(--color-bg-soft);
   position: sticky;
   top: 0;
   z-index: 1;
 }
-#parse-result-table td.cell-uncertain { background: var(--color-uncertain); }
-#parse-result-table input,
-#parse-result-table select {
+#cal-result-table td.cell-uncertain { background: var(--color-uncertain); }
+#cal-result-table input,
+#cal-result-table select {
   width: 100%;
   padding: 0.25rem 0.4rem;
   border: 1px solid transparent;
@@ -428,12 +392,12 @@ main {
   font-size: 0.85rem;
   font-family: inherit;
 }
-#parse-result-table input:focus {
+#cal-result-table input:focus {
   outline: none;
   border-color: var(--color-primary);
   background: #fff;
 }
-#parse-result-table .remove-row {
+#cal-result-table .remove-row {
   background: none;
   border: none;
   cursor: pointer;
@@ -477,7 +441,7 @@ main {
 #print-area { display: none; }
 
 @media print {
-  @page { size: A4 landscape; margin: 8mm; }
+  @page { size: A4 portrait; margin: 8mm; }
   html, body { background: #fff; }
 
   /* 列印時只顯示 #print-area，其餘全部隱藏 */

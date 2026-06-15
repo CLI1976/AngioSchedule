@@ -26,22 +26,18 @@ jobs:
 
       - name: Generate config.js from secrets
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
-          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          APPS_SCRIPT_URL: ${{ secrets.APPS_SCRIPT_URL }}
           GOOGLE_CALENDAR_ID: ${{ secrets.GOOGLE_CALENDAR_ID }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
         run: |
-          if [ -z "$GEMINI_API_KEY" ] || [ -z "$GOOGLE_CLIENT_ID" ] || [ -z "$GOOGLE_SHEET_ID" ]; then
-            echo "::error::Missing one or more secrets: GEMINI_API_KEY, GOOGLE_CLIENT_ID, GOOGLE_SHEET_ID"
+          if [ -z "$APPS_SCRIPT_URL" ]; then
+            echo "::error::Missing secret: APPS_SCRIPT_URL"
             exit 1
           fi
           # GOOGLE_CALENDAR_ID / GOOGLE_API_KEY 為選用（行事曆匯入功能用）；未設定則留空字串
           cat > config.js <<EOF
           const CONFIG = {
-            GEMINI_API_KEY: "${GEMINI_API_KEY}",
-            GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID}",
-            GOOGLE_SHEET_ID: "${GOOGLE_SHEET_ID}",
+            APPS_SCRIPT_URL: "${APPS_SCRIPT_URL}",
             GOOGLE_CALENDAR_ID: "${GOOGLE_CALENDAR_ID}",
             GOOGLE_API_KEY: "${GOOGLE_API_KEY}"
           };

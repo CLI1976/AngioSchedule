@@ -1,27 +1,17 @@
 // config.example.js — 設定範本
-// 請複製此檔為 config.js，並填入自己的 API key
+// 請複製此檔為 config.js，並填入自己的設定
 const CONFIG = {
-  // Gemini API Key
-  // https://aistudio.google.com/app/apikey
-  GEMINI_API_KEY: "YOUR_GEMINI_API_KEY",
-
-  // Google OAuth 2.0 Client ID
-  // https://console.cloud.google.com/apis/credentials
-  // 需啟用 Google Sheets API，並將 GitHub Pages URL 加入 Authorized JavaScript origins
-  GOOGLE_CLIENT_ID: "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com",
-
-  // Google Sheet ID（從網址擷取）
-  // https://docs.google.com/spreadsheets/d/{GOOGLE_SHEET_ID}/edit
-  // 工作表名稱必須為 "schedules"
-  // 欄位順序：id | date | time | name | chart_no | phone | site | note | uncertain
-  GOOGLE_SHEET_ID: "YOUR_GOOGLE_SHEET_ID",
+  // Google Apps Script Web App 的網址（資料讀寫的後端，以擁有者身分存取私人 Sheet）
+  // 部署方式見 apps-script/Code.gs 檔頭說明；密碼存放於 Apps Script 的「指令碼屬性」APP_PASSWORD
+  APPS_SCRIPT_URL: "https://script.google.com/macros/s/XXXXXXXX/exec",
 
   // 要匯入的「公開」Google 行事曆 ID（通常是該帳號的 email）
   // 行事曆需設為公開：Google Calendar → 設定 → 存取權限 → 「公開此日曆」
+  // 若不使用「從 Google 行事曆匯入」功能，可留空字串
   GOOGLE_CALENDAR_ID: "your_shared_calendar@gmail.com",
 
-  // 可存取 Calendar API 的 Google API key（讀公開行事曆用，非 OAuth）
+  // 可存取 Calendar API 的 Google API key（讀公開行事曆用，唯讀）
   // 在 Google Cloud Console → Credentials → 建立 API key，並啟用 Calendar API
-  // 若留空，會改用上面的 GEMINI_API_KEY（同專案且未限制 API 時可共用）
+  // 若不使用行事曆匯入功能，可留空字串
   GOOGLE_API_KEY: ""
 };

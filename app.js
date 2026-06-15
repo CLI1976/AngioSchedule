@@ -5,21 +5,12 @@
 // State
 // ============================================================
 const state = {
-  token: null,            // Google OAuth access token
-  tokenExpireAt: 0,
-  userEmail: null,
-  tokenClient: null,
-  sheetGid: null,         // sheet ID (gid) for delete operations
   calendar: null,
-  events: [],             // [{id, date, time, name, chart_no, phone, site, note, uncertain, _rowIndex}]
+  events: [],             // [{id, date, time, name, chart_no, phone, site, note, uncertain}]
   parsedRows: [],         // temp storage during import confirmation
   initialJumpDone: false, // 首次載入時若視圖內無事件，自動跳到最近一筆
   dayViewDate: null,      // 目前自訂「天」視圖顯示的日期（YYYY-MM-DD）；null 表示不在天視圖
 };
-
-const SHEET_NAME = 'schedules';
-const SCOPES = 'https://www.googleapis.com/auth/spreadsheets openid email profile';
-const COLUMNS = ['id', 'date', 'time', 'name', 'chart_no', 'phone', 'site', 'note', 'uncertain'];
 
 const SITE_COLORS = [
   { match: /veno/i,  color: '#1D9E75' },
@@ -82,424 +73,88 @@ function escapeHtml(s) {
   ));
 }
 
-// Minimal CSV parser (handles quoted fields with embedded commas/quotes/newlines)
-function parseCSV(text) {
-  const rows = [];
-  let row = [];
-  let field = '';
-  let inQuotes = false;
-  let i = 0;
-  while (i < text.length) {
-    const c = text[i];
-    if (inQuotes) {
-      if (c === '"') {
-        if (text[i + 1] === '"') { field += '"'; i += 2; continue; }
-        inQuotes = false; i++; continue;
-      }
-      field += c; i++; continue;
+// ============================================================
+// 密碼登入（伺服器端驗證；密碼存於 Apps Script，瀏覽器只保留使用者輸入值）
+// ============================================================
+const PW_KEY = 'angio.pw';
+
+function getPassword() { return localStorage.getItem(PW_KEY) || ''; }
+function setPassword(pw) { localStorage.setItem(PW_KEY, pw); }
+function clearPassword() { localStorage.removeItem(PW_KEY); }
+function isAuthed() { return !!getPassword(); }
+
+// 呼叫 Apps Script Web App。
+// 用 text/plain 送出，讓它成為「simple request」以避開 CORS 預檢（Apps Script 對自訂標頭支援不佳）。
+async function api(action, payload = {}) {
+  if (!CONFIG.APPS_SCRIPT_URL) throw new Error('尚未設定 APPS_SCRIPT_URL');
+  const res = await fetch(CONFIG.APPS_SCRIPT_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ password: getPassword(), action, ...payload }),
+  });
+  if (!res.ok) throw new Error('伺服器錯誤 ' + res.status);
+  let data;
+  try { data = await res.json(); } catch (e) { throw new Error('伺服器回應格式錯誤'); }
+  if (!data.ok) {
+    if (data.error === 'unauthorized') {
+      clearPassword();
+      const err = new Error('密碼錯誤');
+      err.code = 'unauthorized';
+      throw err;
     }
-    if (c === '"') { inQuotes = true; i++; continue; }
-    if (c === ',') { row.push(field); field = ''; i++; continue; }
-    if (c === '\r') { i++; continue; }
-    if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; i++; continue; }
-    field += c; i++;
+    throw new Error(data.error || '未知錯誤');
   }
-  if (field.length || row.length) { row.push(field); rows.push(row); }
-  return rows;
+  return data.result;
 }
 
-function csvEscape(value) {
-  const s = String(value ?? '');
-  if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
-  return s;
-}
-
-// ============================================================
-// Google OAuth (Google Identity Services)
-// ============================================================
-function waitForGIS() {
-  return new Promise((resolve) => {
-    if (window.google && google.accounts && google.accounts.oauth2) return resolve();
-    const t = setInterval(() => {
-      if (window.google && google.accounts && google.accounts.oauth2) {
-        clearInterval(t);
-        resolve();
-      }
-    }, 100);
-  });
-}
-
-const CONSENT_FLAG_KEY = 'angio.consented';
-const TOKEN_KEY = 'angio.token';
-const TOKEN_EXP_KEY = 'angio.tokenExpireAt';
-const EMAIL_KEY = 'angio.userEmail';
-
-function persistToken() {
-  if (!state.token || !state.tokenExpireAt) return;
-  sessionStorage.setItem(TOKEN_KEY, state.token);
-  sessionStorage.setItem(TOKEN_EXP_KEY, String(state.tokenExpireAt));
-  if (state.userEmail) sessionStorage.setItem(EMAIL_KEY, state.userEmail);
-  localStorage.setItem(CONSENT_FLAG_KEY, '1');
-}
-
-function clearPersistedToken() {
-  sessionStorage.removeItem(TOKEN_KEY);
-  sessionStorage.removeItem(TOKEN_EXP_KEY);
-  sessionStorage.removeItem(EMAIL_KEY);
-}
-
-function restoreToken() {
-  const token = sessionStorage.getItem(TOKEN_KEY);
-  const expStr = sessionStorage.getItem(TOKEN_EXP_KEY);
-  if (!token || !expStr) return false;
-  const exp = parseInt(expStr, 10);
-  if (!exp || Date.now() >= exp) { clearPersistedToken(); return false; }
-  state.token = token;
-  state.tokenExpireAt = exp;
-  state.userEmail = sessionStorage.getItem(EMAIL_KEY);
-  return true;
-}
-
-async function initOAuth() {
-  await waitForGIS();
-  state.tokenClient = google.accounts.oauth2.initTokenClient({
-    client_id: CONFIG.GOOGLE_CLIENT_ID,
-    scope: SCOPES,
-    callback: handleTokenResponse,
-    error_callback: (err) => {
-      console.warn('OAuth error:', err);
-    },
-  });
-}
-
-async function handleTokenResponse(response) {
-  if (response.error) {
-    toast('登入失敗：' + response.error, 'error');
+// 開啟密碼輸入框；驗證成功才記住密碼並載入資料
+async function promptLogin() {
+  const pw = window.prompt('請輸入存取密碼');
+  if (pw == null || pw === '') return;
+  const prev = getPassword();
+  setPassword(pw);
+  try {
+    await api('auth');
+  } catch (e) {
+    if (prev) setPassword(prev); else clearPassword();
+    toast(e.message || '登入失敗', 'error', 4000);
     return;
   }
-  state.token = response.access_token;
-  state.tokenExpireAt = Date.now() + (response.expires_in - 60) * 1000;
-
-  try {
-    const userInfo = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-      headers: { Authorization: 'Bearer ' + state.token },
-    }).then((r) => r.json());
-    state.userEmail = userInfo.email || null;
-  } catch (e) {
-    state.userEmail = null;
-  }
-
-  persistToken();
-
-  if (!state.sheetGid) {
-    try { await fetchSheetMeta(); } catch (e) { console.warn('sheet meta failed', e); }
-  }
-
   updateAuthUI();
-  toast('已登入' + (state.userEmail ? '：' + state.userEmail : ''));
-
-  // 登入後重讀一次資料（試算表若為私人，未登入時讀不到，登入後才看得到）
+  toast('已登入');
   reloadEvents();
 }
 
-function isTokenValid() {
-  return state.token && Date.now() < state.tokenExpireAt;
-}
-
-function requestLogin() {
-  if (!state.tokenClient) {
-    toast('Google 登入服務尚未載入', 'error');
-    return;
-  }
-  state.tokenClient.requestAccessToken({ prompt: state.token ? '' : 'consent' });
-}
-
 function logout() {
-  if (state.token) {
-    try { google.accounts.oauth2.revoke(state.token, () => {}); } catch (e) {}
-  }
-  state.token = null;
-  state.userEmail = null;
-  state.tokenExpireAt = 0;
-  localStorage.removeItem(CONSENT_FLAG_KEY);
-  clearPersistedToken();
+  clearPassword();
   updateAuthUI();
   toast('已登出');
+  reloadEvents();
 }
 
 function updateAuthUI() {
-  const loggedIn = isTokenValid();
-  $('#btn-login').hidden = loggedIn;
-  $('#btn-logout').hidden = !loggedIn;
-  $('#btn-import').hidden = !loggedIn;
-  $('#btn-import-calendar').hidden = !loggedIn;
-  const info = $('#user-info');
-  info.textContent = state.userEmail || '';
-  info.hidden = !loggedIn || !state.userEmail;
+  const authed = isAuthed();
+  $('#btn-login').hidden = authed;
+  $('#btn-logout').hidden = !authed;
+  $('#btn-import-calendar').hidden = !authed;
+}
+
+// 需要寫入權限的操作前呼叫；未登入則提示輸入密碼
+function ensureAuthed() {
+  if (isAuthed()) return true;
+  toast('請先輸入密碼登入', 'error');
+  promptLogin();
+  return false;
 }
 
 // ============================================================
-// Google Sheets — read (public via gviz CSV)
+// 資料讀寫（全部經由 Apps Script，以擁有者身分存取私人 Sheet）
 // ============================================================
-function rowsToEvents(rows) {
-  if (rows.length === 0) return [];
-  const header = rows[0].map((h) => (h || '').toString().trim().toLowerCase());
-  const idx = {};
-  COLUMNS.forEach((col) => { idx[col] = header.indexOf(col); });
-
-  const events = [];
-  for (let i = 1; i < rows.length; i++) {
-    const r = rows[i] || [];
-    const get = (col) => idx[col] >= 0 ? ((r[idx[col]] ?? '').toString().trim()) : '';
-    if (!get('date') && !get('name')) continue; // skip blank rows
-    const uncertainStr = get('uncertain').toLowerCase();
-    events.push({
-      id: get('id') || uuid(),
-      date: get('date'),
-      time: get('time'),
-      name: get('name'),
-      chart_no: get('chart_no'),
-      phone: get('phone'),
-      site: get('site'),
-      note: get('note'),
-      uncertain: uncertainStr === 'true' || uncertainStr === '1' || uncertainStr === 'yes',
-      _rowIndex: i + 1,
-    });
-  }
-  return events;
-}
-
-async function fetchEventsViaApi() {
-  const data = await sheetsApi(`/values/${encodeURIComponent(SHEET_NAME)}!A:I`);
-  return rowsToEvents(data.values || []);
-}
-
-async function fetchEventsViaCsv() {
-  const url = `https://docs.google.com/spreadsheets/d/${encodeURIComponent(CONFIG.GOOGLE_SHEET_ID)}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(SHEET_NAME)}`;
-  const res = await fetch(url, { cache: 'no-store' });
-  if (!res.ok) {
-    if (res.status === 404 || res.status === 401 || res.status === 403) {
-      // Sheet 未公開 — 未登入者無法讀取
-      return [];
-    }
-    throw new Error('讀取 Sheet 失敗：' + res.status);
-  }
-  const text = await res.text();
-  const rows = parseCSV(text).filter((r) => r.some((c) => c && c.trim() !== ''));
-  return rowsToEvents(rows);
-}
-
 async function fetchEvents() {
-  if (isTokenValid()) {
-    try {
-      await ensureSheetReady();
-      return await fetchEventsViaApi();
-    } catch (e) {
-      console.warn('OAuth read failed, falling back to CSV:', e);
-    }
-  }
-  return await fetchEventsViaCsv();
-}
-
-// ============================================================
-// Google Sheets — write/update/delete (OAuth)
-// ============================================================
-async function sheetsApi(path, options = {}) {
-  if (!isTokenValid()) throw new Error('尚未登入');
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(CONFIG.GOOGLE_SHEET_ID)}${path}`;
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      Authorization: 'Bearer ' + state.token,
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
-  });
-  if (!res.ok) {
-    const txt = await res.text();
-    throw new Error('Sheets API 錯誤 ' + res.status + ': ' + txt);
-  }
-  return res.json();
-}
-
-async function fetchSheetMeta() {
-  const data = await sheetsApi('?fields=sheets.properties');
-  let sheet = (data.sheets || []).find((s) => s.properties && s.properties.title === SHEET_NAME);
-  if (!sheet) {
-    await createSheetTab();
-    const data2 = await sheetsApi('?fields=sheets.properties');
-    sheet = (data2.sheets || []).find((s) => s.properties && s.properties.title === SHEET_NAME);
-    if (!sheet) throw new Error(`無法建立工作表「${SHEET_NAME}」`);
-  }
-  state.sheetGid = sheet.properties.sheetId;
-}
-
-async function createSheetTab() {
-  const addRes = await sheetsApi(':batchUpdate', {
-    method: 'POST',
-    body: JSON.stringify({
-      requests: [{ addSheet: { properties: { title: SHEET_NAME } } }],
-    }),
-  });
-  const newGid = addRes?.replies?.[0]?.addSheet?.properties?.sheetId;
-
-  // 寫入表頭
-  await sheetsApi(
-    `/values/${encodeURIComponent(SHEET_NAME)}!A1:I1?valueInputOption=RAW`,
-    { method: 'PUT', body: JSON.stringify({ values: [COLUMNS] }) },
-  );
-
-  // 把 chart_no(E) 和 phone(F) 整欄設為純文字，避免前導 0 被吃掉
-  if (newGid != null) {
-    await sheetsApi(':batchUpdate', {
-      method: 'POST',
-      body: JSON.stringify({
-        requests: [{
-          repeatCell: {
-            range: {
-              sheetId: newGid,
-              startColumnIndex: 4, // E (chart_no)
-              endColumnIndex: 6,   // 到 G 前（即 E、F）
-            },
-            cell: { userEnteredFormat: { numberFormat: { type: 'TEXT' } } },
-            fields: 'userEnteredFormat.numberFormat',
-          },
-        }],
-      }),
-    });
-  }
-  toast(`已自動建立工作表「${SHEET_NAME}」`);
-}
-
-async function ensureSheetReady() {
-  if (state.sheetGid == null) await fetchSheetMeta();
-}
-
-function rowToValues(row) {
-  return COLUMNS.map((col) => {
-    if (col === 'uncertain') return row.uncertain ? 'TRUE' : 'FALSE';
-    const val = row[col] != null ? String(row[col]) : '';
-    // phone / chart_no 可能有前導 0，加 ' 前綴強制 Sheets 存為文字
-    if ((col === 'phone' || col === 'chart_no') && /^\d/.test(val)) {
-      return "'" + val;
-    }
-    return val;
-  });
-}
-
-async function appendRows(rows) {
-  if (!rows.length) return;
-  await ensureSheetReady();
-  const values = rows.map(rowToValues);
-  await sheetsApi(
-    `/values/${encodeURIComponent(SHEET_NAME)}!A:I:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
-    { method: 'POST', body: JSON.stringify({ values }) },
-  );
-}
-
-async function updateRow(rowIndex, row) {
-  await ensureSheetReady();
-  const values = [rowToValues(row)];
-  await sheetsApi(
-    `/values/${encodeURIComponent(SHEET_NAME)}!A${rowIndex}:I${rowIndex}?valueInputOption=USER_ENTERED`,
-    { method: 'PUT', body: JSON.stringify({ values }) },
-  );
-}
-
-async function deleteRow(rowIndex) {
-  await ensureSheetReady();
-  const body = {
-    requests: [{
-      deleteDimension: {
-        range: {
-          sheetId: state.sheetGid,
-          dimension: 'ROWS',
-          startIndex: rowIndex - 1, // 0-based, inclusive
-          endIndex: rowIndex,        // exclusive
-        },
-      },
-    }],
-  };
-  await sheetsApi(':batchUpdate', { method: 'POST', body: JSON.stringify(body) });
-}
-
-// ============================================================
-// Gemini API
-// ============================================================
-function buildGeminiPrompt() {
-  const year = new Date().getFullYear();
-  return `這是一張手寫醫院排班表的照片，請解析所有病患資料，回傳 JSON array，每筆格式如下：
-{
-  "date": "YYYY-MM-DD",
-  "time": "HH:MM",
-  "name": "姓名",
-  "chart_no": "病歷號",
-  "phone": "電話",
-  "site": "部位或處置",
-  "note": "其他備註",
-  "uncertain": false
-}
-規則：
-- 若照片上沒寫年份，請一律使用今年（${year}）。
-- 病歷號為 4-8 碼純數字（請保留前導 0）。
-- 電話為 09 開頭 10 碼數字（請保留前導 0）。
-- 無法確定的欄位設 uncertain: true。
-- 只回傳 JSON，不要其他文字。`;
-}
-
-function fileToBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result;
-      const comma = result.indexOf(',');
-      resolve({ base64: result.slice(comma + 1), mimeType: file.type || 'image/jpeg' });
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
-async function callGemini(file) {
-  const { base64, mimeType } = await fileToBase64(file);
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(CONFIG.GEMINI_API_KEY)}`;
-  const body = {
-    contents: [{
-      parts: [
-        { text: buildGeminiPrompt() },
-        { inline_data: { mime_type: mimeType, data: base64 } },
-      ],
-    }],
-    generationConfig: {
-      temperature: 0.1,
-      responseMimeType: 'application/json',
-    },
-  };
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const txt = await res.text();
-    throw new Error('Gemini API 錯誤 ' + res.status + ': ' + txt);
-  }
-  const data = await res.json();
-  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  return parseGeminiJson(text);
-}
-
-function parseGeminiJson(text) {
-  let cleaned = text.trim();
-  // 移除可能的 markdown code fence
-  cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '');
-  // 嘗試擷取第一個 [ 到最後一個 ]
-  const start = cleaned.indexOf('[');
-  const end = cleaned.lastIndexOf(']');
-  if (start >= 0 && end > start) cleaned = cleaned.slice(start, end + 1);
-  const parsed = JSON.parse(cleaned);
-  if (!Array.isArray(parsed)) throw new Error('Gemini 回傳格式錯誤（非陣列）');
-  return parsed.map((r) => ({
+  if (!isAuthed()) return []; // 未登入：顯示空行事曆
+  const rows = await api('list');
+  return (rows || []).map((r) => ({
+    id: r.id || uuid(),
     date: r.date || '',
     time: r.time || '',
     name: r.name || '',
@@ -507,8 +162,21 @@ function parseGeminiJson(text) {
     phone: r.phone || '',
     site: r.site || '',
     note: r.note || '',
-    uncertain: !!r.uncertain,
+    uncertain: r.uncertain === true || r.uncertain === 'TRUE' || r.uncertain === 'true' || r.uncertain === 1,
   }));
+}
+
+async function appendRows(rows) {
+  if (!rows.length) return;
+  await api('append', { rows });
+}
+
+async function updateRow(row) {
+  await api('update', { row });
+}
+
+async function deleteRow(id) {
+  await api('delete', { id });
 }
 
 // ============================================================
@@ -821,11 +489,7 @@ function openEditModal(record) {
 
 async function submitEdit(e) {
   e.preventDefault();
-  if (!isTokenValid()) {
-    toast('請先登入 Google', 'error');
-    requestLogin();
-    return;
-  }
+  if (!ensureAuthed()) return;
   const id = $('#edit-id').value;
   const record = state.events.find((ev) => ev.id === id);
   if (!record) { toast('找不到該排班', 'error'); return; }
@@ -843,7 +507,7 @@ async function submitEdit(e) {
   };
 
   try {
-    await updateRow(record._rowIndex, updated);
+    await updateRow(updated);
     toast('已更新');
     hideModal('modal-edit');
     await reloadEvents();
@@ -854,17 +518,13 @@ async function submitEdit(e) {
 }
 
 async function handleDelete() {
-  if (!isTokenValid()) {
-    toast('請先登入 Google', 'error');
-    requestLogin();
-    return;
-  }
+  if (!ensureAuthed()) return;
   const id = $('#btn-delete').dataset.id;
   const record = state.events.find((ev) => ev.id === id);
   if (!record) { toast('找不到該排班', 'error'); return; }
   if (!confirm(`確定要刪除 ${record.name || '此筆'} 的排班嗎？`)) return;
   try {
-    await deleteRow(record._rowIndex);
+    await deleteRow(record.id);
     toast('已刪除');
     hideModal('modal-edit');
     await reloadEvents();
@@ -875,63 +535,10 @@ async function handleDelete() {
 }
 
 // ============================================================
-// Import flow
+// Import flow（匯入確認表格；目前由「從 Google 行事曆匯入」共用）
 // ============================================================
-function resetImportModal() {
-  $('#import-step-upload').hidden = false;
-  $('#import-step-loading').hidden = true;
-  $('#import-step-confirm').hidden = true;
-  $('#import-step-error').hidden = true;
-  $('#preview-container').hidden = true;
-  $('#photo-input').value = '';
-  state.parsedRows = [];
-}
-
-function openImportModal() {
-  if (!isTokenValid()) {
-    toast('請先登入 Google', 'error');
-    requestLogin();
-    return;
-  }
-  resetImportModal();
-  showModal('modal-import');
-}
-
-function showImportError(msg) {
-  $('#import-step-upload').hidden = true;
-  $('#import-step-loading').hidden = true;
-  $('#import-step-confirm').hidden = true;
-  $('#import-step-error').hidden = false;
-  $('#import-step-error .error-msg').textContent = msg;
-}
-
-function handlePhotoSelect(e) {
-  const file = e.target.files[0];
-  if (!file) return;
-  const url = URL.createObjectURL(file);
-  $('#photo-preview').src = url;
-  $('#preview-container').hidden = false;
-}
-
-async function handleAnalyze() {
-  const file = $('#photo-input').files[0];
-  if (!file) { toast('請先選擇相片', 'error'); return; }
-  $('#import-step-upload').hidden = true;
-  $('#import-step-loading').hidden = false;
-  try {
-    const rows = await callGemini(file);
-    state.parsedRows = rows;
-    renderParseResultTable();
-    $('#import-step-loading').hidden = true;
-    $('#import-step-confirm').hidden = false;
-  } catch (err) {
-    console.error(err);
-    showImportError(err.message);
-  }
-}
-
 function renderParseResultTable(tbody) {
-  tbody = tbody || $('#parse-result-table tbody');
+  tbody = tbody || $('#cal-result-table tbody');
   tbody.innerHTML = '';
   state.parsedRows.forEach((row, idx) => {
     const tr = document.createElement('tr');
@@ -982,13 +589,9 @@ function onTableClick(e) {
   renderParseResultTable(e.currentTarget);
 }
 
-async function handleConfirmImport(modalId = 'modal-import') {
+async function handleConfirmImport(modalId = 'modal-calendar') {
   if (!state.parsedRows.length) { toast('沒有資料可匯入', 'error'); return; }
-  if (!isTokenValid()) {
-    toast('請先登入 Google', 'error');
-    requestLogin();
-    return;
-  }
+  if (!ensureAuthed()) return;
   const rows = state.parsedRows.map((r) => ({ ...r, id: uuid() }));
   try {
     await appendRows(rows);
@@ -1068,7 +671,7 @@ function parseCalendarTitle(summary) {
 
 // 透過 Calendar API + API key 讀取「公開」行事曆（不需 OAuth，也不會碰到使用者其他行事曆）
 async function calendarApiGet(path) {
-  const apiKey = CONFIG.GOOGLE_API_KEY || CONFIG.GEMINI_API_KEY;
+  const apiKey = CONFIG.GOOGLE_API_KEY;
   const sep = path.includes('?') ? '&' : '?';
   const res = await fetch(`https://www.googleapis.com/calendar/v3${path}${sep}key=${encodeURIComponent(apiKey)}`);
   if (res.ok) return res.json();
@@ -1135,11 +738,7 @@ function updateCalRangePreview() {
 }
 
 function openCalendarModal() {
-  if (!isTokenValid()) {
-    toast('請先登入 Google', 'error');
-    requestLogin();
-    return;
-  }
+  if (!ensureAuthed()) return;
   if (!CONFIG.GOOGLE_CALENDAR_ID) {
     toast('尚未在 config.js 設定 GOOGLE_CALENDAR_ID', 'error', 4000);
     return;
@@ -1188,15 +787,15 @@ function showCalendarError(msg) {
 }
 
 // ============================================================
-// 列印（為紙本最佳化的週方格，橫向 A4）
+// 列印（為紙本最佳化的週方格，直向 A4，僅週一至週五）
 // ============================================================
-// 取得行事曆目前所在週的週一～週日（ISO，週一為始）
+// 取得行事曆目前所在週的週一～週五（ISO，週一為始；週六日不排班，列印時忽略）
 function currentWeekDays() {
   const anchor = state.calendar ? state.calendar.getDate() : new Date();
   const wk = isoWeekOf(anchor);
   const monday = isoWeekStart(wk.year, wk.week);
   const days = [];
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < 5; i++) {
     const d = new Date(monday);
     d.setDate(monday.getDate() + i);
     days.push(d);
@@ -1255,9 +854,9 @@ function buildPrintArea() {
   let body = '';
   if (Object.keys(allDay).length) body += buildRow('整天', allDay);
   for (const slot of slots) body += buildRow(slot, bySlot[slot]);
-  if (!body) body = `<tr><td class="p-empty" colspan="8">本週無排班資料</td></tr>`;
+  if (!body) body = `<tr><td class="p-empty" colspan="6">本週無排班資料</td></tr>`;
 
-  const first = days[0], last = days[6];
+  const first = days[0], last = days[days.length - 1];
   const range = `${first.getFullYear()}/${pad2(first.getMonth() + 1)}/${pad2(first.getDate())}（${WEEKDAY_LABEL[first.getDay()]}）`
     + ` ～ ${last.getFullYear()}/${pad2(last.getMonth() + 1)}/${pad2(last.getDate())}（${WEEKDAY_LABEL[last.getDay()]}）`;
 
@@ -1350,9 +949,8 @@ function downloadICS() {
 // Bootstrap
 // ============================================================
 function bindEvents() {
-  $('#btn-login').addEventListener('click', requestLogin);
+  $('#btn-login').addEventListener('click', promptLogin);
   $('#btn-logout').addEventListener('click', logout);
-  $('#btn-import').addEventListener('click', openImportModal);
   $('#btn-import-calendar').addEventListener('click', openCalendarModal);
   $('#btn-export').addEventListener('click', downloadICS);
   $('#btn-print').addEventListener('click', handlePrint);
@@ -1371,11 +969,6 @@ function bindEvents() {
     state.dayViewDate = formatLocalDate(new Date());
     renderDayView();
   });
-
-  $('#photo-input').addEventListener('change', handlePhotoSelect);
-  $('#btn-analyze').addEventListener('click', handleAnalyze);
-  $('#btn-confirm-import').addEventListener('click', handleConfirmImport);
-  $('#btn-retry-import').addEventListener('click', resetImportModal);
 
   $('#edit-form').addEventListener('submit', submitEdit);
   $('#btn-delete').addEventListener('click', handleDelete);
@@ -1398,26 +991,24 @@ function bindEvents() {
 }
 
 async function main() {
-  if (typeof CONFIG === 'undefined' ||
-      !CONFIG.GEMINI_API_KEY ||
-      !CONFIG.GOOGLE_CLIENT_ID ||
-      !CONFIG.GOOGLE_SHEET_ID) {
+  if (typeof CONFIG === 'undefined' || !CONFIG.APPS_SCRIPT_URL) {
     document.body.innerHTML = `
       <div style="padding:2rem;max-width:680px;margin:auto;font-family:sans-serif">
         <h2>缺少 config.js</h2>
-        <p>請複製 <code>config.example.js</code> 為 <code>config.js</code>，並填入您的 API key。</p>
+        <p>請複製 <code>config.example.js</code> 為 <code>config.js</code>，並填入 <code>APPS_SCRIPT_URL</code>。</p>
       </div>`;
     return;
   }
   bindEvents();
   renderCalendar();
+  updateAuthUI();
 
-  // 還原上次的 token（同一個瀏覽器分頁內，reload 後不必重登）
-  const restored = restoreToken();
-  if (restored) updateAuthUI();
-
-  await reloadEvents();
-  initOAuth().catch((e) => console.error('OAuth init failed', e));
+  // 若已記住密碼，直接載入資料；否則顯示空行事曆並提示登入
+  if (isAuthed()) {
+    await reloadEvents();
+  } else {
+    toast('請點右上角「登入」輸入密碼');
+  }
 }
 
 document.addEventListener('DOMContentLoaded', main);
