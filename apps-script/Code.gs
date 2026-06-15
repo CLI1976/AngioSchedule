@@ -51,6 +51,7 @@ function dispatch(action, req) {
     case 'append': return appendRows(req.rows || []);
     case 'update': return updateRow(req.row || {});
     case 'delete': return deleteRow(req.id);
+    case 'deleteIds': return deleteIds(req.ids || []);
     default: throw new Error('未知操作：' + action);
   }
 }
@@ -141,6 +142,22 @@ function deleteRow(id) {
   if (i < 0) throw new Error('找不到資料：' + id);
   sh.deleteRow(i);
   return { deleted: id };
+}
+
+// 一次刪除多個 id（由下往上刪，避免列號位移）
+function deleteIds(ids) {
+  if (!ids.length) return { deleted: 0 };
+  const sh = getSheet();
+  const last = sh.getLastRow();
+  if (last < 2) return { deleted: 0 };
+  const want = {};
+  ids.forEach(function (id) { want[String(id).trim()] = true; });
+  const idCol = sh.getRange(1, 1, last, 1).getValues();
+  let n = 0;
+  for (let i = idCol.length - 1; i >= 1; i--) { // 跳過表頭、由下往上
+    if (want[String(idCol[i][0]).trim()]) { sh.deleteRow(i + 1); n++; }
+  }
+  return { deleted: n };
 }
 
 // 依 id 找出列號（1-based 工作表列號）；找不到回 -1

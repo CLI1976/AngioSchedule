@@ -137,6 +137,7 @@ function updateAuthUI() {
   $('#btn-login').hidden = authed;
   $('#btn-logout').hidden = !authed;
   $('#btn-import-calendar').hidden = !authed;
+  $('#btn-clear-week').hidden = !authed;
 }
 
 // 需要寫入權限的操作前呼叫；未登入則提示輸入密碼
@@ -177,6 +178,12 @@ async function updateRow(row) {
 
 async function deleteRow(id) {
   await api('delete', { id });
+}
+
+// 批次刪除（一次請求刪多筆，用於「清除本週」）
+async function deleteRows(ids) {
+  if (!ids.length) return;
+  await api('deleteIds', { ids });
 }
 
 // ============================================================
@@ -590,9 +597,13 @@ function onTableClick(e) {
 }
 
 async function handleConfirmImport(modalId = 'modal-calendar') {
+  if (handleConfirmImport._busy) return; // 防止連點造成重複匯入
   if (!state.parsedRows.length) { toast('沒有資料可匯入', 'error'); return; }
   if (!ensureAuthed()) return;
   const rows = state.parsedRows.map((r) => ({ ...r, id: uuid() }));
+  const btn = $('#btn-confirm-calendar');
+  handleConfirmImport._busy = true;
+  if (btn) { btn.disabled = true; btn.textContent = '匯入中…'; }
   try {
     await appendRows(rows);
     toast(`已匯入 ${rows.length} 筆`);
@@ -601,6 +612,38 @@ async function handleConfirmImport(modalId = 'modal-calendar') {
   } catch (err) {
     console.error(err);
     toast(err.message, 'error', 5000);
+  } finally {
+    handleConfirmImport._busy = false;
+    if (btn) { btn.disabled = false; btn.textContent = '確認匯入'; }
+  }
+}
+
+// 清除目前顯示週（週一～週日）的所有排班
+async function clearCurrentWeek() {
+  if (clearCurrentWeek._busy) return;
+  if (!ensureAuthed()) return;
+  const monday = mondayOfDisplayedWeek();
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  const start = formatLocalDate(monday);
+  const end = formatLocalDate(sunday);
+  const targets = state.events.filter((ev) => ev.date >= start && ev.date <= end);
+  if (!targets.length) { toast('本週沒有資料可清除'); return; }
+  if (!confirm(`確定要刪除本週（${start} ～ ${end}）的 ${targets.length} 筆排班嗎？\n此動作無法復原。`)) return;
+
+  const btn = $('#btn-clear-week');
+  clearCurrentWeek._busy = true;
+  if (btn) btn.disabled = true;
+  try {
+    await deleteRows(targets.map((ev) => ev.id));
+    toast(`已清除本週 ${targets.length} 筆`);
+    await reloadEvents();
+  } catch (err) {
+    console.error(err);
+    toast(err.message, 'error', 5000);
+  } finally {
+    clearCurrentWeek._busy = false;
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -789,11 +832,20 @@ function showCalendarError(msg) {
 // ============================================================
 // 列印（為紙本最佳化的週方格，直向 A4，僅週一至週五）
 // ============================================================
-// 取得行事曆目前所在週的週一～週五（ISO，週一為始；週六日不排班，列印時忽略）
+// 依「畫面目前顯示的那一週」對齊到該週週一
+// （行事曆可能以週日為首，故不能用 ISO 週反推，否則週日當天會被算到上一週）
+function mondayOfDisplayedWeek() {
+  const view = state.calendar && state.calendar.view;
+  const base = (view && view.currentStart) ? new Date(view.currentStart) : new Date();
+  const monday = new Date(base);
+  monday.setDate(base.getDate() + ((1 - base.getDay() + 7) % 7)); // 視圖起始日 → 該週週一
+  monday.setHours(0, 0, 0, 0);
+  return monday;
+}
+
+// 取得目前顯示週的週一～週五（週六日不排班，列印時忽略）
 function currentWeekDays() {
-  const anchor = state.calendar ? state.calendar.getDate() : new Date();
-  const wk = isoWeekOf(anchor);
-  const monday = isoWeekStart(wk.year, wk.week);
+  const monday = mondayOfDisplayedWeek();
   const days = [];
   for (let i = 0; i < 5; i++) {
     const d = new Date(monday);
@@ -952,6 +1004,7 @@ function bindEvents() {
   $('#btn-login').addEventListener('click', promptLogin);
   $('#btn-logout').addEventListener('click', logout);
   $('#btn-import-calendar').addEventListener('click', openCalendarModal);
+  $('#btn-clear-week').addEventListener('click', clearCurrentWeek);
   $('#btn-export').addEventListener('click', downloadICS);
   $('#btn-print').addEventListener('click', handlePrint);
 
